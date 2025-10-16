@@ -241,4 +241,6 @@ if args.wandb:
     wandb.log({"video": wandb.Video(str(ckpt_path / f"{args.run_name}_eval.mp4"), fps=fps, format="mp4")})
 
 save_params(ckpt_path, params)
-# conv_to_onnx(ckpt_path / "params.pkl", f"{args.run_name}.onnx", env_name)
+conv_to_onnx(ckpt_path / "params.pkl", f"{args.run_name}.onnx", env_name)
+if args.wandb:
+    wandb.log_artifact(str(f"{args.run_name}.onnx"), name="onnx_model", type="model")
