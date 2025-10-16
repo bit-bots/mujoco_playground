@@ -25,7 +25,6 @@ import numpy as np
 
 from mujoco_playground._src import gait
 from mujoco_playground._src import mjx_env
-from mujoco_playground._src.collision import geoms_colliding
 from mujoco_playground._src.locomotion.x02 import base as x02_base
 from mujoco_playground._src.locomotion.x02 import x02_constants as consts
 
@@ -99,6 +98,9 @@ def default_config() -> config_dict.ConfigDict:
       lin_vel_x=[-1.0, 1.0],
       lin_vel_y=[-0.25, 0.25],
       ang_vel_yaw=[-2.0, 2.0],
+      impl="jax",
+      nconmax=8 * 8192,
+      njmax=29 * 2 + 8 * 4,
   )
 
 
@@ -111,6 +113,9 @@ class Joystick(x02_base.X02Base):
       config: config_dict.ConfigDict = default_config(),
       config_overrides: Optional[Dict[str, Union[str, int, list[Any]]]] = None,
   ):
+    if task.startswith("rough"):
+      config.nconmax = 100 * 8192
+      config.njmax = 29 * 2 + 100 * 4
     super().__init__(
         xml_path=consts.task_to_xml(task).as_posix(),
         config=config,
@@ -178,6 +183,14 @@ class Joystick(x02_base.X02Base):
       )
     self._foot_linvel_sensor_adr = jp.array(foot_linvel_sensor_adr)
 
+    self._feet_floor_found_sensor = [
+        self._mj_model.sensor(foot_geom + "_floor_found").id
+        for foot_geom in ["l_foot00", "r_foot00"]
+    ]
+    self._right_foot_left_foot_found_sensor = self._mj_model.sensor(
+        "right_foot_left_foot_found"
+    ).id
+
     qpos_noise_scale = np.zeros(10)
     hip_ids = [0, 1, 2, 5, 6, 7]
     kfe_ids = [3, 8]
@@ -215,7 +228,17 @@ class Joystick(x02_base.X02Base):
         jax.random.uniform(key, (6,), minval=-0.5, maxval=0.5)
     )
 
-    data = mjx_env.init(self.mjx_model, qpos=qpos, qvel=qvel, ctrl=qpos[7:])
+    data = mjx_env.make_data(
+        self.mj_model,
+        qpos=qpos,
+        qvel=qvel,
+        ctrl=qpos[7:],
+        impl=self.mjx_model.impl.value,
+        nconmax=self._config.nconmax,
+        njmax=self._config.njmax,
+    )
+    data = mjx.forward(self.mjx_model, data)
+
 
     # Phase, freq=U(1.0, 1.5)
     rng, key = jax.random.split(rng)
@@ -266,8 +289,8 @@ class Joystick(x02_base.X02Base):
     metrics["swing_peak"] = jp.zeros(())
 
     contact = jp.array([
-        geoms_colliding(data, geom_id, self._floor_geom_id)
-        for geom_id in self._feet_geom_id
+      data.sensordata[self._mj_model.sensor_adr[sensorid]] > 0
+      for sensorid in self._feet_floor_found_sensor
     ])
     obs = self._get_obs(data, info, contact)
     reward, done = jp.zeros(2)
@@ -301,15 +324,19 @@ class Joystick(x02_base.X02Base):
     state.info["motor_targets"] = motor_targets
 
 
-    left_feet_contact = jp.array([
-        geoms_colliding(data, geom_id, self._floor_geom_id)
-        for geom_id in self._left_feet_geom_id
+    #left_feet_contact = jp.array([
+    #    geoms_colliding(data, geom_id, self._floor_geom_id)
+    #    for geom_id in self._left_feet_geom_id
+    #])
+    #right_feet_contact = jp.array([
+    #    geoms_colliding(data, geom_id, self._floor_geom_id)
+    #    for geom_id in self._right_feet_geom_id
+    #])
+    # contact = jp.hstack([jp.any(left_feet_contact), jp.any(right_feet_contact)])
+    contact = jp.array([ # must be adapted for multiple feet geoms similar to above
+      data.sensordata[self._mj_model.sensor_adr[sensorid]] > 0
+      for sensorid in self._feet_floor_found_sensor
     ])
-    right_feet_contact = jp.array([
-        geoms_colliding(data, geom_id, self._floor_geom_id)
-        for geom_id in self._right_feet_geom_id
-    ])
-    contact = jp.hstack([jp.any(left_feet_contact), jp.any(right_feet_contact)])
     contact_filt = contact | state.info["last_contact"]
     first_contact = (state.info["feet_air_time"] > 0.0) * contact_filt
     state.info["feet_air_time"] += self.dt

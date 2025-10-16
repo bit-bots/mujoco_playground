@@ -442,5 +442,8 @@
     <framexaxis objtype="site" objname="r_foot" name="r_foot_upvector"/>
     <framepos objtype="site" objname="l_foot" name="l_foot_pos"/>
     <framepos objtype="site" objname="r_foot" name="r_foot_pos"/>
+    <contact name="l_foot1_floor_found" geom1="l_foot1" geom2="floor" reduce="mindist" num="1" data="found"/>
+    <contact name="r_foot1_floor_found" geom1="r_foot1" geom2="floor" reduce="mindist" num="1" data="found"/>
+    <contact name="right_foot_left_foot_found" geom1="l_foot1" geom2="r_foot1" reduce="mindist" num="1" data="found"/>
   </sensor>
 </mujoco>

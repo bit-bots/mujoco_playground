@@ -25,7 +25,6 @@ import numpy as np
 
 from mujoco_playground._src import gait
 from mujoco_playground._src import mjx_env
-from mujoco_playground._src.collision import geoms_colliding
 from mujoco_playground._src.locomotion.wolfgang import base as wolfgang_base
 from mujoco_playground._src.locomotion.wolfgang import wolfgang_constants as consts
 
@@ -94,6 +93,9 @@ def default_config() -> config_dict.ConfigDict:
       lin_vel_x=[-0.5, 0.5],
       lin_vel_y=[-0.5, 0.5],
       ang_vel_yaw=[-1.5, 1.5],
+      impl="jax",
+      nconmax=8 * 8192,
+      njmax=29 * 2 + 8 * 4,
   )
 
 
@@ -106,6 +108,9 @@ class Joystick(wolfgang_base.WolfgangEnv):
       config: config_dict.ConfigDict = default_config(),
       config_overrides: Optional[Dict[str, Union[str, int, list[Any]]]] = None,
   ):
+    if task.startswith("rough"):
+      config.nconmax = 100 * 8192
+      config.njmax = 29 * 2 + 100 * 4
     super().__init__(
         xml_path=consts.task_to_xml(task).as_posix(),
         config=config,
@@ -167,6 +172,14 @@ class Joystick(wolfgang_base.WolfgangEnv):
       )
     self._foot_linvel_sensor_adr = jp.array(foot_linvel_sensor_adr)
 
+    self._feet_floor_found_sensor = [
+        self._mj_model.sensor(foot_geom + "_floor_found").id
+        for foot_geom in ["l_foot1", "r_foot1"]
+    ]
+    self._right_foot_left_foot_found_sensor = self._mj_model.sensor(
+        "right_foot_left_foot_found"
+    ).id
+
     qpos_noise_scale = np.zeros(12)
     hip_ids = [0, 1, 2, 6, 7, 8]
     kfe_ids = [3, 9]
@@ -204,7 +217,16 @@ class Joystick(wolfgang_base.WolfgangEnv):
         jax.random.uniform(key, (6,), minval=-0.5, maxval=0.5)
     )
 
-    data = mjx_env.init(self.mjx_model, qpos=qpos, qvel=qvel, ctrl=qpos[7:])
+    data = mjx_env.make_data(
+        self.mj_model,
+        qpos=qpos,
+        qvel=qvel,
+        ctrl=qpos[7:],
+        impl=self.mjx_model.impl.value,
+        nconmax=self._config.nconmax,
+        njmax=self._config.njmax,
+    )
+    data = mjx.forward(self.mjx_model, data)
 
     # Phase, freq=U(1.0, 1.5)
     rng, key = jax.random.split(rng)
@@ -249,8 +271,8 @@ class Joystick(wolfgang_base.WolfgangEnv):
     metrics["swing_peak"] = jp.zeros(())
 
     contact = jp.array([
-        geoms_colliding(data, geom_id, self._floor_geom_id)
-        for geom_id in self._feet_geom_id
+      data.sensordata[self._mj_model.sensor_adr[sensorid]] > 0
+      for sensorid in self._feet_floor_found_sensor
     ])
     obs = self._get_obs(data, info, contact)
     reward, done = jp.zeros(2)
@@ -284,8 +306,8 @@ class Joystick(wolfgang_base.WolfgangEnv):
     state.info["motor_targets"] = motor_targets
 
     contact = jp.array([
-        geoms_colliding(data, geom_id, self._floor_geom_id)
-        for geom_id in self._feet_geom_id
+      data.sensordata[self._mj_model.sensor_adr[sensorid]] > 0
+      for sensorid in self._feet_floor_found_sensor
     ])
     contact_filt = contact | state.info["last_contact"]
     first_contact = (state.info["feet_air_time"] > 0.0) * contact_filt

@@ -198,8 +198,10 @@ for j in range(commands.shape[0]):
       break
     state.info["command"] = commands[j]
     rollout.append(state)
-
-    xyz = np.array(state.data.xpos[eval_env.mj_model.body("pelvis_link").id])
+    torso_body_name = "pelvis_link"
+    if args.env.startswith("Wolfgang"):
+      torso_body_name = "torso"
+    xyz = np.array(state.data.xpos[eval_env.mj_model.body(torso_body_name).id])
     xyz += np.array([0, 0.0, 0])
     x_axis = state.data.xmat[eval_env._torso_body_id, 0]
     yaw = -np.arctan2(x_axis[1], x_axis[0])
