@@ -37,10 +37,17 @@ import mujoco
 
 def parse_kv(s):
     key, value = s.split('=')
-    if '.' in value:
-      return key, float(value)
-    else:
-      return key, int(value)
+    try:
+      value = int(value)
+    except ValueError:
+      try:
+        value = float(value)
+      except ValueError:
+        if value.lower() == 'true':
+          value = True
+        elif value.lower() == 'false':
+          value = False
+    return key, value
 
 # Enable persistent compilation cache.
 jax.config.update("jax_compilation_cache_dir", "/tmp/jax_cache")
@@ -162,6 +169,8 @@ make_inference_fn, params, metrics = train_fn(
 )
 print(f"time to jit: {times[1] - times[0]}")
 print(f"time to train: {times[-1] - times[1]}")
+
+del env
 
 print("Rendering Video")
 
