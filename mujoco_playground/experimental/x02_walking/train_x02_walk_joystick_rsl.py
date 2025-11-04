@@ -202,12 +202,12 @@ def save_onnx_from_rsl_rl(ckpt_path, runner, raw_env, run_name, env_name):
             dummy_input_cpu,
             str(onnx_path),
             input_names=["obs"],
-            output_names=["actions"],
+            output_names=["continuous_actions"],
             opset_version=11,
             do_constant_folding=True,
             dynamic_axes={
                 "obs": {0: "batch_size"},
-                "actions": {0: "batch_size"}
+                "continuous_actions": {0: "batch_size"}
             },
         )
         
