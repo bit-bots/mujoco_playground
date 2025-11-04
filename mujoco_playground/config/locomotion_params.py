@@ -229,6 +229,7 @@ def rsl_rl_config(
           max_grad_norm=1.0,
       ),
       num_steps_per_env=24,  # per iteration
+      num_envs=8192,
       max_iterations=100000,  # number of policy updates
       empirical_normalization=True,
       # logging
