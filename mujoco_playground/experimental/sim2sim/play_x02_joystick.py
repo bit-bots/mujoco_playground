@@ -19,6 +19,7 @@ import mujoco
 import mujoco.viewer as viewer
 import numpy as np
 import onnxruntime as rt
+import numpy as np
 
 from mujoco_playground._src.locomotion.x02 import x02_constants
 from mujoco_playground._src.locomotion.x02.base import get_assets
@@ -36,6 +37,12 @@ parser.add_argument(
     default=(_ONNX_DIR / "history10").as_posix(),
     help="Path to the ONNX policy.",
 )
+parser.add_argument(
+    "--history_len",
+    type=int,
+    default=1,
+    help="History length.",
+)
 args = parser.parse_args()
 
 class OnnxController:
@@ -51,6 +58,7 @@ class OnnxController:
       vel_scale_x: float = 1.0,
       vel_scale_y: float = 1.0,
       vel_scale_rot: float = 1.0,
+      history_len: int = 1,
   ):
     self._output_names = ["continuous_actions"]
     self._policy = rt.InferenceSession(
@@ -73,9 +81,18 @@ class OnnxController:
         vel_scale_y=vel_scale_y,
         vel_scale_rot=vel_scale_rot,
     )
+    self._history_len = history_len
+    self._qvel_history = np.zeros((self._history_len, 10))
+    self._qpos_error_history = np.zeros((self._history_len, 10))
 
   def get_obs(self, model, data) -> np.ndarray:
-    linvel = data.sensor("local_linvel").data
+
+    qvel_history = np.roll(data.qvel[6:], 10).at[:10].set(data.qvel[6:])
+    qpos_error_history = (
+        np.roll(data.qpos[7:] - self._default_angles, 10)
+        .at[:10]
+        .set(data.qpos[7:] - self._default_angles)
+    )
     gyro = data.sensor("gyro").data
     imu_xmat = data.site_xmat[model.site("imu").id].reshape(3, 3)
     gravity = imu_xmat.T @ np.array([0, 0, -1])
@@ -85,6 +102,8 @@ class OnnxController:
     command = self._joystick.get_command()
     obs = np.hstack([
         #linvel,
+        qvel_history, # 10*history_len
+        qpos_error_history, # 10*history_len
         gyro,
         gravity,
         command,
@@ -132,6 +151,7 @@ def load_callback(model=None, data=None):
       vel_scale_x=1.0,
       vel_scale_y=1.0,
       vel_scale_rot=1.0,
+      history_len=args.history_len,
   )
 
   mujoco.set_mjcb_control(policy.get_control)
