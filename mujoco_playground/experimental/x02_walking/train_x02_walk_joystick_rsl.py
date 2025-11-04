@@ -136,12 +136,25 @@ def save_onnx_from_rsl_rl(ckpt_path, runner, raw_env, run_name, env_name):
         obs_size = raw_env.observation_size
         if isinstance(obs_size, dict):
             # Get actor observation size
+            # obs_size values are tuples (shapes), extract the last dimension
             obs_groups = policy.obs_groups["policy"]
             num_actor_obs = 0
             for obs_group in obs_groups:
-                num_actor_obs += obs_size[obs_group]
+                obs_shape = obs_size[obs_group]
+                if isinstance(obs_shape, tuple):
+                    # Extract the last dimension (feature dimension)
+                    num_actor_obs += obs_shape[-1]
+                elif isinstance(obs_shape, int):
+                    num_actor_obs += obs_shape
+                else:
+                    # Try to get the size if it's a JAX array shape
+                    num_actor_obs += int(obs_shape[-1])
         else:
-            num_actor_obs = obs_size
+            # obs_size is an int or a shape tuple
+            if isinstance(obs_size, tuple):
+                num_actor_obs = obs_size[-1]
+            else:
+                num_actor_obs = int(obs_size)
         
         # Create a wrapper model that includes normalization and actor
         # ONNX doesn't support dict inputs, so we use a single tensor input
