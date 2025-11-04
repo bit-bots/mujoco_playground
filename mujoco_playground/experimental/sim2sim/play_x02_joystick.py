@@ -24,10 +24,19 @@ from mujoco_playground._src.locomotion.x02 import x02_constants
 from mujoco_playground._src.locomotion.x02.base import get_assets
 #from mujoco_playground.experimental.sim2sim.gamepad_reader import Gamepad
 from mujoco_playground.experimental.sim2sim.keyboard_gamepad import KeyboardGamepad as Gamepad
+from argparse import ArgumentParser
 
 _HERE = epath.Path(__file__).parent
 _ONNX_DIR = _HERE / "onnx"
 
+parser = ArgumentParser()
+parser.add_argument(
+    "onnx_path",
+    type=str,
+    default=(_ONNX_DIR / "history10").as_posix(),
+    help="Path to the ONNX policy.",
+)
+args = parser.parse_args()
 
 class OnnxController:
   """ONNX controller for the DroidUp X02 humanoid."""
@@ -115,7 +124,7 @@ def load_callback(model=None, data=None):
   model.opt.timestep = sim_dt
 
   policy = OnnxController(
-      policy_path=(_ONNX_DIR / "horizontal_foot_distance_long.onnx").as_posix(),
+      policy_path=(_ONNX_DIR / (args.onnx_path + ".onnx")).as_posix(),
       default_angles=np.array(model.keyframe("home").qpos[7:]),
       ctrl_dt=ctrl_dt,
       n_substeps=n_substeps,
