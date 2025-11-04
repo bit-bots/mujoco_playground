@@ -86,13 +86,19 @@ class OnnxController:
     self._qpos_error_history = np.zeros((self._history_len, 10))
 
   def get_obs(self, model, data) -> np.ndarray:
-
-    qvel_history = np.roll(data.qvel[6:], 10).at[:10].set(data.qvel[6:])
-    qpos_error_history = (
-        np.roll(data.qpos[7:] - self._default_angles, 10)
-        .at[:10]
-        .set(data.qpos[7:] - self._default_angles)
-    )
+    # Update history buffers (roll and insert new values at the beginning)
+    # Roll the history arrays to shift old values
+    self._qvel_history = np.roll(self._qvel_history, 10, axis=0)
+    self._qpos_error_history = np.roll(self._qpos_error_history, 10, axis=0)
+    
+    # Insert new values at the beginning
+    self._qvel_history[:10] = data.qvel[6:]
+    self._qpos_error_history[:10] = data.qpos[7:] - self._default_angles
+    
+    # Flatten history for observation
+    qvel_history = self._qvel_history.flatten()
+    qpos_error_history = self._qpos_error_history.flatten()
+    
     gyro = data.sensor("gyro").data
     imu_xmat = data.site_xmat[model.site("imu").id].reshape(3, 3)
     gravity = imu_xmat.T @ np.array([0, 0, -1])
