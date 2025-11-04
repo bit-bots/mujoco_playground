@@ -314,97 +314,101 @@ def main(argv):
     # Save final model
     save_params_rsl_rl(ckpt_path, runner)
     
-    print("Rendering Video")
-    
-    # Get inference policy
-    policy = runner.get_inference_policy(device=device)
-    
-    eval_env = registry.load(env_name, config_overrides=config_overrides)
-    jit_reset = jax.jit(eval_env.reset)
-    jit_step = jax.jit(eval_env.step)
-    
-    rng = jax.random.PRNGKey(_SEED.value)
-    
-    rollout = []
-    modify_scene_fns = []
-    
-    commands = jp.array([[0.0, 0.0, 0.0],
-                         [1.0, 0.0, 0.0],
-                         [-0.5, 0.0, 0.0],
-                         [0.0, 0.4, 0.0],
-                         [0.0, -0.4, 0.0],
-                         [0.0, 0.0, 2.0],
-                         [0.0, 0.0, -2.0],])
-    phase_dt = 2 * jp.pi * eval_env.dt * 1.5
-    phase = jp.array([0, jp.pi])
-    
-    for j in range(commands.shape[0]):
-        print(f"episode {j}")
-        state = jit_reset(rng)
-        state.info["phase_dt"] = phase_dt
-        state.info["phase"] = phase
-        for i in range(env_cfg.episode_length):
-            state.info["command"] = commands[j]
-            # Get observation in torch format
-            # Policy expects a dict with observation groups as keys
-            if isinstance(state.obs, dict):
-                # Convert dict observations to torch
-                obs_torch_dict = {k: wrapper_torch._jax_to_torch(v) for k, v in state.obs.items()}
-            else:
-                # Single observation - wrap in dict with "state" key
-                obs_torch = wrapper_torch._jax_to_torch(state.obs)
-                obs_torch_dict = {"state": obs_torch}
-            
-            with torch.no_grad():
-                actions = policy(obs_torch_dict)
-            # Convert back to JAX and flatten
-            ctrl = wrapper_torch._torch_to_jax(actions.squeeze(0) if actions.dim() > 1 else actions)
-            state = jit_step(state, ctrl)
-            if state.done:
-                break
-            rollout.append(state)
-            torso_body_name = "pelvis_link"
-            if env_name.startswith("Wolfgang"):
-                torso_body_name = "torso"
-            xyz = np.array(state.data.xpos[eval_env.mj_model.body(torso_body_name).id])
-            xyz += np.array([0, 0.0, 0])
-            x_axis = state.data.xmat[eval_env._torso_body_id, 0]
-            yaw = -np.arctan2(x_axis[1], x_axis[0])
-            modify_scene_fns.append(
-                functools.partial(
-                    draw_joystick_command,
-                    cmd=state.info["command"],
-                    xyz=xyz,
-                    theta=yaw,
-                    scl=1.0,
+    try:
+        print("Rendering Video")
+        
+        # Get inference policy
+        policy = runner.get_inference_policy(device=device)
+        
+        eval_env = registry.load(env_name, config_overrides=config_overrides)
+        jit_reset = jax.jit(eval_env.reset)
+        jit_step = jax.jit(eval_env.step)
+        
+        rng = jax.random.PRNGKey(_SEED.value)
+        
+        rollout = []
+        modify_scene_fns = []
+        
+        commands = jp.array([[0.0, 0.0, 0.0],
+                            [1.0, 0.0, 0.0],
+                            [-0.5, 0.0, 0.0],
+                            [0.0, 0.4, 0.0],
+                            [0.0, -0.4, 0.0],
+                            [0.0, 0.0, 2.0],
+                            [0.0, 0.0, -2.0],])
+        phase_dt = 2 * jp.pi * eval_env.dt * 1.5
+        phase = jp.array([0, jp.pi])
+        
+        for j in range(commands.shape[0]):
+            print(f"episode {j}")
+            state = jit_reset(rng)
+            state.info["phase_dt"] = phase_dt
+            state.info["phase"] = phase
+            for i in range(env_cfg.episode_length):
+                state.info["command"] = commands[j]
+                # Get observation in torch format
+                # Policy expects a dict with observation groups as keys
+                if isinstance(state.obs, dict):
+                    # Convert dict observations to torch
+                    obs_torch_dict = {k: wrapper_torch._jax_to_torch(v) for k, v in state.obs.items()}
+                else:
+                    # Single observation - wrap in dict with "state" key
+                    obs_torch = wrapper_torch._jax_to_torch(state.obs)
+                    obs_torch_dict = {"state": obs_torch}
+                
+                with torch.no_grad():
+                    actions = policy(obs_torch_dict)
+                # Convert back to JAX and flatten
+                ctrl = wrapper_torch._torch_to_jax(actions.squeeze(0) if actions.dim() > 1 else actions)
+                state = jit_step(state, ctrl)
+                if state.done:
+                    break
+                rollout.append(state)
+                torso_body_name = "pelvis_link"
+                if env_name.startswith("Wolfgang"):
+                    torso_body_name = "torso"
+                xyz = np.array(state.data.xpos[eval_env.mj_model.body(torso_body_name).id])
+                xyz += np.array([0, 0.0, 0])
+                x_axis = state.data.xmat[eval_env._torso_body_id, 0]
+                yaw = -np.arctan2(x_axis[1], x_axis[0])
+                modify_scene_fns.append(
+                    functools.partial(
+                        draw_joystick_command,
+                        cmd=state.info["command"],
+                        xyz=xyz,
+                        theta=yaw,
+                        scl=1.0,
+                    )
                 )
-            )
-    
-    render_every = 2
-    fps = 1.0 / eval_env.dt / render_every
-    print(f"fps: {fps}")
-    traj = rollout[::render_every]
-    mod_fns = modify_scene_fns[::render_every]
-    
-    scene_option = mujoco.MjvOption()
-    scene_option.geomgroup[2] = True
-    scene_option.geomgroup[3] = False
-    scene_option.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = True
-    scene_option.flags[mujoco.mjtVisFlag.mjVIS_TRANSPARENT] = False
-    scene_option.flags[mujoco.mjtVisFlag.mjVIS_PERTFORCE] = False
-    
-    frames = eval_env.render(
-        traj,
-        camera="track",
-        scene_option=scene_option,
-        width=640,
-        height=480*2,
-        modify_scene_fns=mod_fns,
-    )
-    media.write_video(ckpt_path / f"{_RUN_NAME.value}_eval.mp4", frames, fps=fps)
-    if _USE_WANDB.value:
-        wandb.log({"video": wandb.Video(str(ckpt_path / f"{_RUN_NAME.value}_eval.mp4"), fps=fps, format="mp4")})
-    
+        
+        render_every = 2
+        fps = 1.0 / eval_env.dt / render_every
+        print(f"fps: {fps}")
+        traj = rollout[::render_every]
+        mod_fns = modify_scene_fns[::render_every]
+        
+        scene_option = mujoco.MjvOption()
+        scene_option.geomgroup[2] = True
+        scene_option.geomgroup[3] = False
+        scene_option.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = True
+        scene_option.flags[mujoco.mjtVisFlag.mjVIS_TRANSPARENT] = False
+        scene_option.flags[mujoco.mjtVisFlag.mjVIS_PERTFORCE] = False
+        
+        frames = eval_env.render(
+            traj,
+            camera="track",
+            scene_option=scene_option,
+            width=640,
+            height=480*2,
+            modify_scene_fns=mod_fns,
+        )
+        media.write_video(ckpt_path / f"{_RUN_NAME.value}_eval.mp4", frames, fps=fps)
+        if _USE_WANDB.value:
+            wandb.log({"video": wandb.Video(str(ckpt_path / f"{_RUN_NAME.value}_eval.mp4"), fps=fps, format="mp4")})
+    except Exception as e:
+        print(f"Failed to render video: {e}")
+        import traceback
+        traceback.print_exc()
     # Export RSL-RL policy directly to ONNX
     print("Exporting RSL-RL policy to ONNX...")
     onnx_path = save_onnx_from_rsl_rl(ckpt_path, runner, raw_env, _RUN_NAME.value, env_name)
