@@ -17,9 +17,6 @@ import numpy as np
 from absl import app
 from absl import flags
 from absl import logging
-import pickle
-from tqdm import tqdm
-from mujoco_playground.experimental.x02_walking.convert_to_onnx import conv_to_onnx
 from mujoco_playground._src.gait import draw_joystick_command
 
 # Tell XLA to use Triton GEMM, this improves steps/sec by ~30% on some GPUs
@@ -27,7 +24,6 @@ xla_flags = os.environ.get('XLA_FLAGS', '')
 xla_flags += ' --xla_gpu_triton_gemm_any=True'
 os.environ['XLA_FLAGS'] = xla_flags
 
-import mujoco_playground
 from mujoco_playground import registry
 from mujoco_playground.config import locomotion_params
 from mujoco_playground import wrapper_torch
@@ -123,35 +119,93 @@ def save_params_rsl_rl(ckpt_path, runner, step=-1):
     print(f"Saved RSL-RL model to {filename}")
 
 
-def save_params_brax_format(ckpt_path, runner, raw_env, step=-1):
-    """Attempt to save parameters in Brax-compatible format for ONNX conversion.
+def save_onnx_from_rsl_rl(ckpt_path, runner, raw_env, run_name, env_name):
+    """Export RSL-RL inference policy directly to ONNX format.
     
-    WARNING: This is a workaround. RSL-RL models are in PyTorch format,
-    while ONNX conversion expects Brax format. This may not work correctly.
+    This function extracts the actor network and normalization from RSL-RL
+    and exports them as a single ONNX model.
     """
-    # Try to extract normalization stats from the runner
-    # This is a simplified approach - may need adjustment based on RSL-RL implementation
     try:
-        # Get the actor network to extract normalization stats
-        if hasattr(runner, "alg") and hasattr(runner.alg, "actor"):
-            # RSL-RL uses empirical normalization, stats are stored in the runner
-            # This is a placeholder - actual implementation depends on RSL-RL internals
-            normalizer_params = None
-            policy_params = None
-            value_params = None
+        import torch.onnx
+        
+        # Get the policy module
+        policy = runner.alg.policy
+        policy.eval()  # Set to evaluation mode
+        
+        # Get observation size
+        obs_size = raw_env.observation_size
+        if isinstance(obs_size, dict):
+            # Get actor observation size
+            obs_groups = policy.obs_groups["policy"]
+            num_actor_obs = 0
+            for obs_group in obs_groups:
+                num_actor_obs += obs_size[obs_group]
+        else:
+            num_actor_obs = obs_size
+        
+        # Create a wrapper model that includes normalization and actor
+        # ONNX doesn't support dict inputs, so we use a single tensor input
+        class PolicyWrapper(torch.nn.Module):
+            def __init__(self, policy):
+                super().__init__()
+                self.policy = policy
             
-            filename = ckpt_path / f"params_{step:012}.pkl" if step >= 0 else ckpt_path / "params.pkl"
-            with open(filename, "wb") as f:
-                data = {
-                    "normalizer_params": normalizer_params,
-                    "policy_params": policy_params,
-                    "value_params": value_params,
-                }
-                pickle.dump(data, f)
-            print(f"WARNING: Saved placeholder params to {filename}")
-            print("ONNX conversion may not work with RSL-RL models directly.")
+            def forward(self, obs):
+                # Input is already concatenated actor observations as a single tensor
+                # Apply normalization
+                normalized_obs = self.policy.actor_obs_normalizer(obs)
+                
+                # Forward through actor
+                if self.policy.state_dependent_std:
+                    output = self.policy.actor(normalized_obs)
+                    # Return mean action (first half of output)
+                    return output[..., 0, :]
+                else:
+                    return self.policy.actor(normalized_obs)
+        
+        wrapper_model = PolicyWrapper(policy)
+        wrapper_model.eval()
+        
+        # Create dummy input for ONNX export (concatenated actor observations)
+        dummy_input = torch.zeros((1, num_actor_obs), dtype=torch.float32, device=runner.device)
+        
+        # Export to ONNX
+        onnx_path = ckpt_path / f"{run_name}.onnx"
+        print(f"Exporting RSL-RL policy to ONNX: {onnx_path}")
+        print(f"  Input shape: {dummy_input.shape}")
+        print(f"  Actor observation size: {num_actor_obs}")
+        
+        # Move model to CPU for ONNX export (ONNX export works better on CPU)
+        wrapper_model_cpu = wrapper_model.cpu()
+        dummy_input_cpu = dummy_input.cpu()
+        
+        # Test forward pass before export
+        with torch.no_grad():
+            test_output = wrapper_model_cpu(dummy_input_cpu)
+            print(f"  Output shape: {test_output.shape}")
+        
+        torch.onnx.export(
+            wrapper_model_cpu,
+            dummy_input_cpu,
+            str(onnx_path),
+            input_names=["obs"],
+            output_names=["actions"],
+            opset_version=11,
+            do_constant_folding=True,
+            dynamic_axes={
+                "obs": {0: "batch_size"},
+                "actions": {0: "batch_size"}
+            },
+        )
+        
+        print(f"Successfully exported ONNX model to {onnx_path}")
+        return onnx_path
+        
     except Exception as e:
-        print(f"Could not save Brax-format params: {e}")
+        print(f"Failed to export ONNX model: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 
 def main(argv):
@@ -292,16 +346,19 @@ def main(argv):
         for i in range(env_cfg.episode_length):
             state.info["command"] = commands[j]
             # Get observation in torch format
-            # Handle both dict and array observations
+            # Policy expects a dict with observation groups as keys
             if isinstance(state.obs, dict):
-                obs_data = state.obs.get("state", state.obs)
+                # Convert dict observations to torch
+                obs_torch_dict = {k: wrapper_torch._jax_to_torch(v) for k, v in state.obs.items()}
             else:
-                obs_data = state.obs
-            obs_torch = wrapper_torch._jax_to_torch(obs_data)
+                # Single observation - wrap in dict with "state" key
+                obs_torch = wrapper_torch._jax_to_torch(state.obs)
+                obs_torch_dict = {"state": obs_torch}
+            
             with torch.no_grad():
-                actions = policy(obs_torch.unsqueeze(0))
+                actions = policy(obs_torch_dict)
             # Convert back to JAX and flatten
-            ctrl = wrapper_torch._torch_to_jax(actions.squeeze(0))
+            ctrl = wrapper_torch._torch_to_jax(actions.squeeze(0) if actions.dim() > 1 else actions)
             state = jit_step(state, ctrl)
             if state.done:
                 break
@@ -348,22 +405,16 @@ def main(argv):
     if _USE_WANDB.value:
         wandb.log({"video": wandb.Video(str(ckpt_path / f"{_RUN_NAME.value}_eval.mp4"), fps=fps, format="mp4")})
     
-    # Note: RSL-RL models are in PyTorch format, not Brax format
-    # The ONNX conversion function expects Brax format, so it won't work directly
-    # You would need to convert the PyTorch model to ONNX separately
-    print("Note: ONNX conversion expects Brax format parameters.")
-    print("RSL-RL models are in PyTorch format. To convert to ONNX, you would need")
-    print("to extract the PyTorch model from the runner and convert it separately.")
+    # Export RSL-RL policy directly to ONNX
+    print("Exporting RSL-RL policy to ONNX...")
+    onnx_path = save_onnx_from_rsl_rl(ckpt_path, runner, raw_env, _RUN_NAME.value, env_name)
     
-    # Try to save in Brax format for ONNX conversion (may not work perfectly)
-    try:
-        save_params_brax_format(ckpt_path, runner, raw_env)
-        conv_to_onnx(ckpt_path / "params.pkl", f"{_RUN_NAME.value}.onnx", env_name)
+    if onnx_path and onnx_path.exists():
         if _USE_WANDB.value:
-            wandb.log_artifact(str(f"{_RUN_NAME.value}.onnx"), name="onnx_model", type="model")
-    except Exception as e:
-        print(f"ONNX conversion failed: {e}")
-        print("This is expected - RSL-RL models are in PyTorch format, not Brax format.")
+            wandb.log_artifact(str(onnx_path), name="onnx_model", type="model")
+        print(f"ONNX model saved successfully: {onnx_path}")
+    else:
+        print("Failed to export ONNX model.")
 
 
 if __name__ == "__main__":
