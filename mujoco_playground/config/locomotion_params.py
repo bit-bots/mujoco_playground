@@ -230,7 +230,7 @@ def rsl_rl_config(
       ),
       num_steps_per_env=24,  # per iteration
       num_envs=8192,
-      max_iterations=2000,  # number of policy updates
+      max_iterations=100000,  # number of policy updates
       empirical_normalization=True,
       # logging
       save_interval=50,  # check for potential saves every this many iterations
@@ -253,5 +253,10 @@ def rsl_rl_config(
   if env_name == "Go1JoystickFlatTerrain":
     rl_config.algorithm.learning_rate = 3e-4
     rl_config.algorithm.schedule = "fixed"
-
+  if env_name == "X02JoystickFlatTerrain":
+    rl_config.max_iterations = 1000
+    rl_config.algorithm.entropy_coef = 0.005
+    rl_config.algorithm.num_learning_epochs = 4
+    rl_config.algorithm.num_mini_batches = 32
+    rl_config.algorithm.gamma = 0.97
   return rl_config

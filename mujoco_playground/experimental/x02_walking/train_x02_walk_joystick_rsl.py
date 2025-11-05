@@ -1,5 +1,5 @@
 import os
-os.environ['MUJOCO_GL'] = 'egl'  # Set the environment variable for EGL rendering
+os.environ['MUJOCO_GL'] = 'osmesa'  # Set the environment variable for EGL rendering
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -68,6 +68,7 @@ _RL_CONFIG_OVERRIDES = flags.DEFINE_string(
     "RL config overrides as comma-separated key=value pairs.",
 )
 _SEED = flags.DEFINE_integer("seed", 1, "Random seed.")
+_RENDER_VIDEO = flags.DEFINE_boolean("render_video", False, "Render video.")
 
 
 
@@ -331,7 +332,7 @@ def main(argv):
     # Save final model
     save_params_rsl_rl(ckpt_path, runner)
     
-    try:
+    if _RENDER_VIDEO.value:
         print("Rendering Video")
         
         # Get inference policy
@@ -508,10 +509,7 @@ def main(argv):
         media.write_video(ckpt_path / f"{_RUN_NAME.value}_eval.mp4", frames, fps=fps)
         if _USE_WANDB.value:
             wandb.log({"video": wandb.Video(str(ckpt_path / f"{_RUN_NAME.value}_eval.mp4"), fps=fps, format="mp4")})
-    except Exception as e:
-        print(f"Failed to render video: {e}")
-        import traceback
-        traceback.print_exc()
+
     # Export RSL-RL policy directly to ONNX
     print("Exporting RSL-RL policy to ONNX...")
     onnx_path = save_onnx_from_rsl_rl(ckpt_path, runner, raw_env, _RUN_NAME.value, env_name)
