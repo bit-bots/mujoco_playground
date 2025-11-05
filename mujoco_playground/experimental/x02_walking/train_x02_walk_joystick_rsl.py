@@ -27,7 +27,6 @@ os.environ['XLA_FLAGS'] = xla_flags
 from mujoco_playground import registry
 from mujoco_playground.config import locomotion_params
 from mujoco_playground import wrapper_torch
-from mujoco_playground.experimental.utils.plotting import TrainingPlotter
 import mujoco
 import torch
 
@@ -230,7 +229,12 @@ def main(argv):
     
     device = _DEVICE.value
     device_rank = int(device.split(":")[-1]) if "cuda" in device else 0
-
+    
+    # Set CUDA_VISIBLE_DEVICES before any CUDA/EGL operations if not already set
+    if "cuda" in device and os.environ.get('CUDA_VISIBLE_DEVICES') is None:
+        device_id = device.split(":")[-1] if ":" in device else "0"
+        os.environ['CUDA_VISIBLE_DEVICES'] = device_id
+        print(f"Set CUDA_VISIBLE_DEVICES={device_id} to match device={device}")
     
     # Parse config overrides
     config_overrides = parse_config_overrides(_CONFIG_OVERRIDES.value)
@@ -334,70 +338,139 @@ def main(argv):
         policy = runner.get_inference_policy(device=device)
         
         eval_env = registry.load(env_name, config_overrides=config_overrides)
-        jit_reset = jax.jit(eval_env.reset)
-        jit_step = jax.jit(eval_env.step)
         
-        rng = jax.random.PRNGKey(_SEED.value)
+        # Get mujoco model for rendering
+        mj_model = eval_env.mj_model
+        mj_data = mujoco.MjData(mj_model)
         
-        rollout = []
+        # Get history length from config (default to 1)
+        history_len = env_cfg.get("history_len", 1)
+        
+        # Initialize history buffers (similar to play_x02_joystick.py)
+        qvel_history = np.zeros((history_len, 10))
+        qpos_error_history = np.zeros((history_len, 10))
+        default_angles = np.array(mj_model.keyframe("home").qpos[7:])
+        last_action = np.zeros(10, dtype=np.float32)
+        
+        # Phase tracking
+        phase = np.array([0.0, np.pi])
+        gait_freq = 1.25
+        phase_dt = 2 * np.pi * gait_freq * eval_env.dt
+        
+        # Reset mujoco data
+        mujoco.mj_resetDataKeyframe(mj_model, mj_data, 1)
+        
+        rollout_data = []
         modify_scene_fns = []
         
-        commands = jp.array([[0.0, 0.0, 0.0],
+        commands = np.array([[0.0, 0.0, 0.0],
                             [1.0, 0.0, 0.0],
                             [-0.5, 0.0, 0.0],
                             [0.0, 0.4, 0.0],
                             [0.0, -0.4, 0.0],
                             [0.0, 0.0, 2.0],
                             [0.0, 0.0, -2.0],])
-        phase_dt = 2 * jp.pi * eval_env.dt * 1.5
-        phase = jp.array([0, jp.pi])
         
         for j in range(commands.shape[0]):
             print(f"episode {j}")
-            state = jit_reset(rng)
-            state.info["phase_dt"] = phase_dt
-            state.info["phase"] = phase
-            for i in range(env_cfg.episode_length):
-                state.info["command"] = commands[j]
-                # Get observation in torch format
-                # Policy expects a dict with observation groups as keys
-                if isinstance(state.obs, dict):
-                    # Convert dict observations to torch
-                    obs_torch_dict = {k: wrapper_torch._jax_to_torch(v) for k, v in state.obs.items()}
-                else:
-                    # Single observation - wrap in dict with "state" key
-                    obs_torch = wrapper_torch._jax_to_torch(state.obs)
-                    obs_torch_dict = {"state": obs_torch}
+            # Reset mujoco data
+            mujoco.mj_resetDataKeyframe(mj_model, mj_data, 1)
+            
+            # Reset history buffers
+            qvel_history.fill(0)
+            qpos_error_history.fill(0)
+            last_action.fill(0)
+            phase = np.array([0.0, np.pi])
+            
+            command = commands[j]
+            
+            for i in range(env_cfg.episode_length//10):
+                # Update history buffers (roll and insert new values)
+                qvel_history = np.roll(qvel_history, 10, axis=0)
+                qpos_error_history = np.roll(qpos_error_history, 10, axis=0)
                 
+                # Insert new values at the beginning
+                qvel_history[:10] = mj_data.qvel[6:]
+                qpos_error_history[:10] = mj_data.qpos[7:] - default_angles
+                
+                # Build observation (similar to play_x02_joystick.py)
+                qvel_history_flat = qvel_history.flatten()
+                qpos_error_history_flat = qpos_error_history.flatten()
+                
+                gyro = mj_data.sensor("gyro").data
+                imu_site_id = mj_model.site("imu").id
+                imu_xmat = mj_data.site_xmat[imu_site_id].reshape(3, 3)
+                gravity = imu_xmat.T @ np.array([0, 0, -1])
+                joint_angles = mj_data.qpos[7:] - default_angles
+                joint_velocities = mj_data.qvel[6:]
+                phase_cos_sin = np.concatenate([np.cos(phase), np.sin(phase)])
+                
+                obs = np.hstack([
+                    qvel_history_flat,
+                    qpos_error_history_flat,
+                    gyro,
+                    gravity,
+                    command,
+                    joint_angles,
+                    joint_velocities,
+                    last_action,
+                    phase_cos_sin,
+                ]).astype(np.float32)
+                
+                # Get action from policy
+                obs_torch = torch.from_numpy(obs).unsqueeze(0).to(device)
                 with torch.no_grad():
-                    actions = policy(obs_torch_dict)
-                # Convert back to JAX and flatten
-                ctrl = wrapper_torch._torch_to_jax(actions.squeeze(0) if actions.dim() > 1 else actions)
-                state = jit_step(state, ctrl)
-                if state.done:
-                    break
-                rollout.append(state)
+                    actions = policy({"state": obs_torch})
+                actions_np = actions.squeeze(0).cpu().numpy()
+                last_action = actions_np.copy()
+                
+                # Apply action
+                mj_data.ctrl[:] = actions_np * 0.5 + default_angles
+                
+                # Step simulation
+                n_substeps = int(round(eval_env.dt / eval_env.sim_dt))
+                for _ in range(n_substeps):
+                    mujoco.mj_step(mj_model, mj_data)
+                
+                # Update phase
+                phase_tp1 = phase + phase_dt
+                phase = np.fmod(phase_tp1 + np.pi, 2 * np.pi) - np.pi
+                
+                # Store data for rendering
+                rollout_data.append({
+                    'qpos': mj_data.qpos.copy(),
+                    'qvel': mj_data.qvel.copy(),
+                    'mocap_pos': mj_data.mocap_pos.copy() if mj_model.nmocap > 0 else None,
+                    'mocap_quat': mj_data.mocap_quat.copy() if mj_model.nmocap > 0 else None,
+                    'xfrc_applied': mj_data.xfrc_applied.copy(),
+                })
+                
+                # Get torso position for joystick visualization
                 torso_body_name = "pelvis_link"
                 if env_name.startswith("Wolfgang"):
                     torso_body_name = "torso"
-                xyz = np.array(state.data.xpos[eval_env.mj_model.body(torso_body_name).id])
-                xyz += np.array([0, 0.0, 0])
-                x_axis = state.data.xmat[eval_env._torso_body_id, 0]
+                torso_body_id = mj_model.body(torso_body_name).id
+                xyz = np.array(mj_data.xpos[torso_body_id])
+                # xmat is flattened (9 elements), reshape to 3x3 and get first row (x-axis)
+                xmat = mj_data.xmat[torso_body_id].reshape(3, 3)
+                x_axis = xmat[0]
                 yaw = -np.arctan2(x_axis[1], x_axis[0])
                 modify_scene_fns.append(
                     functools.partial(
                         draw_joystick_command,
-                        cmd=state.info["command"],
+                        cmd=command,
                         xyz=xyz,
                         theta=yaw,
                         scl=1.0,
                     )
                 )
         
+        # Render using mujoco directly (not mjx)
         render_every = 2
         fps = 1.0 / eval_env.dt / render_every
         print(f"fps: {fps}")
-        traj = rollout[::render_every]
+        
+        traj_data = rollout_data[::render_every]
         mod_fns = modify_scene_fns[::render_every]
         
         scene_option = mujoco.MjvOption()
@@ -407,14 +480,31 @@ def main(argv):
         scene_option.flags[mujoco.mjtVisFlag.mjVIS_TRANSPARENT] = False
         scene_option.flags[mujoco.mjtVisFlag.mjVIS_PERTFORCE] = False
         
-        frames = eval_env.render(
-            traj,
-            camera="track",
-            scene_option=scene_option,
-            width=640,
-            height=480*2,
-            modify_scene_fns=mod_fns,
-        )
+        # Create renderer
+        renderer = mujoco.Renderer(mj_model, height=480*2, width=640)
+        camera = mj_model.camera("track").id if mj_model.ncam > 0 else -1
+        
+        frames = []
+        for i, data_dict in enumerate(traj_data):
+            # Set mujoco data
+            mj_data.qpos[:] = data_dict['qpos']
+            mj_data.qvel[:] = data_dict['qvel']
+            if data_dict['mocap_pos'] is not None:
+                mj_data.mocap_pos[:] = data_dict['mocap_pos']
+            if data_dict['mocap_quat'] is not None:
+                mj_data.mocap_quat[:] = data_dict['mocap_quat']
+            mj_data.xfrc_applied[:] = data_dict['xfrc_applied']
+            
+            mujoco.mj_forward(mj_model, mj_data)
+            renderer.update_scene(mj_data, camera=camera, scene_option=scene_option)
+            
+            if i < len(mod_fns):
+                mod_fns[i](renderer.scene)
+            
+            frames.append(renderer.render())
+        
+        renderer.close()
+        
         media.write_video(ckpt_path / f"{_RUN_NAME.value}_eval.mp4", frames, fps=fps)
         if _USE_WANDB.value:
             wandb.log({"video": wandb.Video(str(ckpt_path / f"{_RUN_NAME.value}_eval.mp4"), fps=fps, format="mp4")})

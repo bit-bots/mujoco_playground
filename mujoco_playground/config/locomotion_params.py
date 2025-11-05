@@ -230,7 +230,7 @@ def rsl_rl_config(
       ),
       num_steps_per_env=24,  # per iteration
       num_envs=8192,
-      max_iterations=20,  # number of policy updates
+      max_iterations=2000,  # number of policy updates
       empirical_normalization=True,
       # logging
       save_interval=50,  # check for potential saves every this many iterations
