@@ -461,8 +461,8 @@ class Joystick(x02_base.X02Base):
         noisy_gravity,  # 3
         info["command"],  # 3
         noisy_joint_angles - self._default_pose,  # 10
-        noisy_joint_vel,  # 12
-        info["last_act"],  # 12
+        noisy_joint_vel,  # 10
+        info["last_act"],  # 10
         phase,
     ])
 
@@ -481,7 +481,7 @@ class Joystick(x02_base.X02Base):
         joint_angles - self._default_pose,
         joint_vel,
         root_height,  # 1
-        data.actuator_force,  # 12
+        data.actuator_force,  # 10
         jp.any(contact[:12]),
         jp.any(contact[12:]),  # 2
         #contact,  # 2
