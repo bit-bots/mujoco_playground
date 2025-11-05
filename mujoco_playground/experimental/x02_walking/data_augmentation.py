@@ -1,8 +1,12 @@
 import torch
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any
 
 def get_symmetric_states_x02(
-    obs: Optional[torch.Tensor] = None, actions: Optional[torch.Tensor] = None, cfg: "BaseEnvCfg" = None, obs_type: str = "policy"
+    obs: Optional[torch.Tensor] = None,
+    actions: Optional[torch.Tensor] = None,
+    cfg: "BaseEnvCfg" = None,
+    obs_type: str = "policy",
+    env: Any = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Mirror observations and actions for X02 humanoid (left/right symmetry).
