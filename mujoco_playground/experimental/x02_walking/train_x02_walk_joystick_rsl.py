@@ -2,7 +2,6 @@ import os
 os.environ['MUJOCO_GL'] = 'osmesa'  # Set the environment variable for EGL rendering
 
 import numpy as np
-import matplotlib.pyplot as plt
 import datetime
 
 from datetime import datetime
@@ -12,7 +11,6 @@ import mediapy as media
 from etils import epath
 import jax
 from jax import numpy as jp
-from matplotlib import pyplot as plt
 import numpy as np
 from absl import app
 from absl import flags
@@ -221,33 +219,43 @@ def save_onnx_from_rsl_rl(ckpt_path, runner, raw_env, run_name, env_name):
         return None
 
 
-def main(argv):
+def main(argv,
+         env_name: str,
+         run_name: str,
+         device: str,
+         config_overrides: dict,
+         rl_config_overrides: dict,
+         use_wandb: bool,
+         seed: int,
+         render_video: bool,
+         run_eval: bool,
+         export_onnx: bool,
+         config_is_string: bool,
+         ):
     """Run training and evaluation for the specified environment using RSL-RL."""
     del argv  # unused
     
-    if _RUN_NAME.value is None:
+    if run_name is None:
         raise ValueError("--run_name is required")
     
-    device = _DEVICE.value
     device_rank = int(device.split(":")[-1]) if "cuda" in device else 0
-    
     # Set CUDA_VISIBLE_DEVICES before any CUDA/EGL operations if not already set
-    if "cuda" in device and os.environ.get('CUDA_VISIBLE_DEVICES') is None:
-        device_id = device.split(":")[-1] if ":" in device else "0"
-        os.environ['CUDA_VISIBLE_DEVICES'] = device_id
-        print(f"Set CUDA_VISIBLE_DEVICES={device_id} to match device={device}")
+    #if "cuda" in device and os.environ.get('CUDA_VISIBLE_DEVICES') is None:
+    #    device_id = device.split(":")[-1] if ":" in device else "0"
+    #    os.environ['CUDA_VISIBLE_DEVICES'] = device_id
+    #    print(f"Set CUDA_VISIBLE_DEVICES={device_id} to match device={device}")
     
-    # Parse config overrides
-    config_overrides = parse_config_overrides(_CONFIG_OVERRIDES.value)
-    rl_config_overrides = parse_config_overrides(_RL_CONFIG_OVERRIDES.value)
+    if config_is_string:
+        # Parse config overrides
+        config_overrides = parse_config_overrides(config_overrides)
+        rl_config_overrides = parse_config_overrides(rl_config_overrides)
     
     # Generate checkpoint path
-    ckpt_path = epath.Path(__file__).parent / "checkpoints" / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{_RUN_NAME.value}"
+    ckpt_path = epath.Path(__file__).parent / "checkpoints" / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{run_name}"
     ckpt_path.mkdir(parents=True, exist_ok=True)
     
     np.set_printoptions(precision=3, suppress=True, linewidth=100)
     
-    env_name = _ENV_NAME.value
     env_cfg = registry.get_default_config(env_name)
     
     # Get RL config
@@ -257,22 +265,22 @@ def main(argv):
     num_envs = train_cfg.num_envs
     
     # Setup logging directory (RSL-RL uses logs/ directory)
-    logdir = os.path.abspath(os.path.join("logs", f"{_RUN_NAME.value}"))
+    logdir = os.path.abspath(os.path.join("logs", f"{run_name}"))
     os.makedirs(logdir, exist_ok=True)
     
     # Initialize Weights & Biases if required
-    if _USE_WANDB.value:
+    if use_wandb:
         import wandb
         # RSL-RL logs to TensorBoard, so we patch wandb to capture those logs
         wandb.tensorboard.patch(root_logdir=logdir)
         run = wandb.init(
             project="mujoco_playground",
             entity="bitbots",
-            name=_RUN_NAME.value,
+            name=run_name,
             config={
                 "env": env_name,
-                "gpu": _DEVICE.value,
-                "run_name": _RUN_NAME.value,
+                "gpu": device,
+                "run_name": run_name,
             } | dict(train_cfg.to_dict()) | dict(env_cfg.to_dict()) | config_overrides,
         )
 
@@ -293,7 +301,7 @@ def main(argv):
     brax_env = wrapper_torch.RSLRLBraxWrapper(
         raw_env,
         num_envs,
-        _SEED.value,
+        seed,
         env_cfg.episode_length,
         1,
         render_callback=render_callback,
@@ -309,8 +317,8 @@ def main(argv):
         train_cfg.obs_groups = {"policy": ["state"], "critic": ["state"]}
     
     # Overwrite default config with flags
-    train_cfg.seed = _SEED.value
-    train_cfg.run_name = _RUN_NAME.value
+    train_cfg.seed = seed
+    train_cfg.run_name = run_name
     
     train_cfg_dict = train_cfg.to_dict()
     from rsl_rl.runners import OnPolicyRunner
@@ -332,9 +340,42 @@ def main(argv):
     # Save final model
     save_params_rsl_rl(ckpt_path, runner)
     
-    if _RENDER_VIDEO.value:
-        print("Rendering Video")
-        
+    if run_eval:
+        policy = runner.get_inference_policy(device=device)
+        eval_env = registry.load(env_name, config_overrides=config_overrides)
+        jit_reset = jax.jit(eval_env.reset)
+        jit_step = jax.jit(eval_env.step)
+
+
+        commands = np.array([[0.0, 0.0, 0.0],
+                            [1.0, 0.0, 0.0],
+                            [-0.5, 0.0, 0.0],
+                            [0.0, 0.4, 0.0],
+                            [0.0, -0.4, 0.0],
+                            [0.0, 0.0, 2.0],
+                            [0.0, 0.0, -2.0],])
+        sum_reward = 0.0
+        sum_episode_length = 0
+        for command in commands:
+            rng = jax.random.PRNGKey(1)
+            state = jit_reset(rng)
+            # We’ll assume your environment’s observation is in state.obs["state"].
+            obs_torch = wrapper_torch._jax_to_torch(state.obs["state"])
+            for _ in range(env_cfg.episode_length):
+                with torch.no_grad():
+                    actions = policy(obs_torch)
+                    # Step environment
+                    state = jit_step(state, wrapper_torch._torch_to_jax(actions.flatten()))
+                    sum_episode_length += 1
+                    sum_reward += state.reward
+                    obs_torch = wrapper_torch._jax_to_torch(state.obs["state"])
+                    if state.done:
+                        break
+        mean_reward = sum_reward / len(commands)
+        mean_episode_length = sum_episode_length / len(commands)
+
+    if render_video:
+        print("Rendering Video...")
         # Get inference policy
         policy = runner.get_inference_policy(device=device)
         
@@ -506,22 +547,41 @@ def main(argv):
         
         renderer.close()
         
-        media.write_video(ckpt_path / f"{_RUN_NAME.value}_eval.mp4", frames, fps=fps)
-        if _USE_WANDB.value:
-            wandb.log({"video": wandb.Video(str(ckpt_path / f"{_RUN_NAME.value}_eval.mp4"), fps=fps, format="mp4")})
-
-    # Export RSL-RL policy directly to ONNX
-    print("Exporting RSL-RL policy to ONNX...")
-    onnx_path = save_onnx_from_rsl_rl(ckpt_path, runner, raw_env, _RUN_NAME.value, env_name)
-    
-    if onnx_path and onnx_path.exists():
-        if _USE_WANDB.value:
-            wandb.log_artifact(str(onnx_path), name="onnx_model", type="model")
-        print(f"ONNX model saved successfully: {onnx_path}")
-    else:
-        print("Failed to export ONNX model.")
+        media.write_video(ckpt_path / f"{run_name}_eval.mp4", frames, fps=fps)
+        if use_wandb:
+            wandb.log({"video": wandb.Video(str(ckpt_path / f"{run_name}_eval.mp4"), fps=fps, format="mp4")})
+    if export_onnx:
+        # Export RSL-RL policy directly to ONNX
+        print("Exporting RSL-RL policy to ONNX...")
+        onnx_path = save_onnx_from_rsl_rl(ckpt_path, runner, raw_env, run_name, env_name)
+        
+        if onnx_path and onnx_path.exists():
+            if use_wandb:
+                wandb.log_artifact(str(onnx_path), name="onnx_model", type="model")
+            print(f"ONNX model saved successfully: {onnx_path}")
+        else:
+            print("Failed to export ONNX model.")
+    if run_eval:
+        return mean_reward, mean_episode_length
 
 
 if __name__ == "__main__":
-    app.run(main)
+    def main_wrapper(argv):
+        """Wrapper to parse flags and call main with parsed values."""
+        return main(
+            argv,
+            env_name=_ENV_NAME.value,
+            run_name=_RUN_NAME.value,
+            device=_DEVICE.value,
+            config_overrides=_CONFIG_OVERRIDES.value,
+            rl_config_overrides=_RL_CONFIG_OVERRIDES.value,
+            use_wandb=_USE_WANDB.value,
+            seed=_SEED.value,
+            render_video=_RENDER_VIDEO.value,
+            run_eval=False,
+            export_onnx=True,
+            config_is_string=True,
+        )
+    
+    app.run(main_wrapper)
 
