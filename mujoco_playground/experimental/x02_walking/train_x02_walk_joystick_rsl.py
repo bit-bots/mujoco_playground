@@ -240,10 +240,10 @@ def main(argv,
     
     device_rank = int(device.split(":")[-1]) if "cuda" in device else 0
     # Set CUDA_VISIBLE_DEVICES before any CUDA/EGL operations if not already set
-    #if "cuda" in device and os.environ.get('CUDA_VISIBLE_DEVICES') is None:
-    #    device_id = device.split(":")[-1] if ":" in device else "0"
-    #    os.environ['CUDA_VISIBLE_DEVICES'] = device_id
-    #    print(f"Set CUDA_VISIBLE_DEVICES={device_id} to match device={device}")
+    if "cuda" in device and os.environ.get('CUDA_VISIBLE_DEVICES') is None:
+        device_id = device.split(":")[-1] if ":" in device else "0"
+        os.environ['CUDA_VISIBLE_DEVICES'] = device_id
+        print(f"Set CUDA_VISIBLE_DEVICES={device_id} to match device={device}")
     
     if config_is_string:
         # Parse config overrides
@@ -363,7 +363,7 @@ def main(argv,
             obs_torch = wrapper_torch._jax_to_torch(state.obs["state"])
             for _ in range(env_cfg.episode_length):
                 with torch.no_grad():
-                    actions = policy(obs_torch)
+                    actions = policy({"state": obs_torch})
                     # Step environment
                     state = jit_step(state, wrapper_torch._torch_to_jax(actions.flatten()))
                     sum_episode_length += 1
