@@ -238,12 +238,8 @@ def main(argv,
     if run_name is None:
         raise ValueError("--run_name is required")
     
-    device_rank = int(device.split(":")[-1]) if "cuda" in device else 0
-    # Set CUDA_VISIBLE_DEVICES before any CUDA/EGL operations if not already set
-    if "cuda" in device and os.environ.get('CUDA_VISIBLE_DEVICES') is None:
-        device_id = device.split(":")[-1] if ":" in device else "0"
-        os.environ['CUDA_VISIBLE_DEVICES'] = device_id
-        print(f"Set CUDA_VISIBLE_DEVICES={device_id} to match device={device}")
+    device_rank = 0 #int(device.split(":")[-1]) if "cuda" in device else 0
+
     
     if config_is_string:
         # Parse config overrides

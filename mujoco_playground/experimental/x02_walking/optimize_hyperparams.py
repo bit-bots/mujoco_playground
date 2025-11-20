@@ -70,7 +70,8 @@ def objective(trial, device: str="cuda:0", env_name: str="BerkeleyHumanoidJoysti
 
     base_config.num_steps_per_env = num_steps_per_env
     base_config.num_envs = num_envs
-    base_config.max_iterations = 100_000_000 // (num_envs * num_steps_per_env) // 100
+    # normalize to same number of experiences collected
+    base_config.max_iterations = 100_000_000 // (num_envs * num_steps_per_env) 
     base_config.empirical_normalization = empirical_normalization
     
     base_config.policy.actor_hidden_dims = [network_hidden_dim1, network_hidden_dim2, network_hidden_dim3]
