@@ -227,7 +227,12 @@ def rsl_rl_config(
           lam=0.95,
           desired_kl=0.01,
           max_grad_norm=1.0,
-          #symmetry_cfg=config_dict.create()
+          symmetry_cfg=config_dict.create(
+            use_data_augmentation=False,
+            use_mirror_loss=False,
+            data_augmentation_func="",
+            mirror_loss_coeff=0.3,
+          ),
       ),
       num_steps_per_env=24,  # per iteration
       num_envs=8192,
@@ -250,11 +255,17 @@ def rsl_rl_config(
       "G1Joystick",
       "Go1JoystickFlatTerrain",
   ):
-    rl_config.max_iterations = 1000
+    rl_config.max_iterations = 10
     rl_config.algorithm.entropy_coef = 0.005
     rl_config.algorithm.num_learning_epochs = 4
     rl_config.algorithm.num_mini_batches = 32
     rl_config.algorithm.gamma = 0.97
+  if env_name == "BerkeleyHumanoidJoystickFlatTerrain":
+    rl_config.algorithm.symmetry_cfg.use_data_augmentation = False
+    rl_config.algorithm.symmetry_cfg.use_mirror_loss = True
+    rl_config.algorithm.symmetry_cfg.data_augmentation_func = \
+      "mujoco_playground.experimental.x02_walking.data_augmentation:get_symmetric_states_berkeley"
+    rl_config.algorithm.symmetry_cfg.mirror_loss_coeff = 0.3
   if env_name == "Go1JoystickFlatTerrain":
     rl_config.algorithm.learning_rate = 3e-4
     rl_config.algorithm.schedule = "fixed"
