@@ -49,7 +49,7 @@ def get_symmetric_states_berkeley(
         mir_obs = obs.clone()
         mir_obs["state"][:,0] *= +1 # x component of linvel
         mir_obs["state"][:,1] *= -1 # y component of linvel
-        mir_obs["state"][:,2] *= -1 # z component of linvel
+        mir_obs["state"][:,2] *= +1 # z component of linvel
 
         mir_obs["state"][:,3] *= -1 # x component of gyro
         mir_obs["state"][:,4] *= +1 # y component of gyro

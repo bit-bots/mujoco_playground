@@ -15,7 +15,7 @@ import numpy as np
 from absl import app
 from absl import flags
 from absl import logging
-from mujoco_playground._src.gait import draw_joystick_command
+from ml_collections import config_dict
 
 # Tell XLA to use Triton GEMM, this improves steps/sec by ~30% on some GPUs
 xla_flags = os.environ.get('XLA_FLAGS', '')
@@ -25,6 +25,7 @@ os.environ['XLA_FLAGS'] = xla_flags
 from mujoco_playground import registry
 from mujoco_playground.config import locomotion_params
 from mujoco_playground import wrapper_torch
+from mujoco_playground._src.gait import draw_joystick_command
 import mujoco
 import torch
 
@@ -55,45 +56,49 @@ _USE_WANDB = flags.DEFINE_boolean(
     False,
     "Enable Weights & Biases logging.",
 )
-_CONFIG_OVERRIDES = flags.DEFINE_string(
+_CONFIG_OVERRIDES = flags.DEFINE_spaceseplist(
     "config_overrides",
-    None,
-    "Configuration overrides as comma-separated key=value pairs (e.g., 'key1=value1,key2=value2').",
+    [],
+    "Configuration overrides as key=value pairs (e.g., 'key1=value1 key2=value2').",
 )
-_RL_CONFIG_OVERRIDES = flags.DEFINE_string(
+_RL_CONFIG_OVERRIDES = flags.DEFINE_spaceseplist(
     "rl_config_overrides",
-    None,
-    "RL config overrides as comma-separated key=value pairs.",
+    [],
+    "RL config overrides as key=value pairs (e.g., 'key1=value1 key2=value2').",
 )
 _SEED = flags.DEFINE_integer("seed", 1, "Random seed.")
 _RENDER_VIDEO = flags.DEFINE_boolean("render_video", False, "Render video.")
 
 
 
-def parse_config_overrides(config_str):
+def parse_config_overrides(config):
     """Parse comma-separated key=value pairs into a dict."""
-    if not config_str:
+    if not config:
         return {}
     overrides = {}
-    for pair in config_str.split(","):
+    print(f"Parsing config overrides: {config}")
+    for pair in config:
         key, value = pair.split("=")
         key = key.strip()
         value = value.strip()
-        try:
-            value = int(value)
-        except ValueError:
+        if value.startswith("["):
+            value = eval(value)
+        else:
             try:
-                value = float(value)
+                value = int(value)
             except ValueError:
-                if value.lower() == "true":
-                    value = True
-                elif value.lower() == "false":
-                    value = False
+                try:
+                    value = float(value)
+                except ValueError:
+                    if value.lower() == "true":
+                        value = True
+                    elif value.lower() == "false":
+                        value = False
         overrides[key] = value
     return overrides
 
 
-def get_rl_config(env_name: str) -> dict:
+def get_rl_config(env_name: str) -> config_dict.ConfigDict:
     """Get RL config for the environment."""
     if env_name in registry.manipulation._envs:
         from mujoco_playground.config import manipulation_params
@@ -223,8 +228,8 @@ def main(argv,
          env_name: str,
          run_name: str,
          device: str,
-         config_overrides: dict,
-         rl_config_overrides: dict,
+         config_overrides: list[str] | dict,
+         rl_config_overrides: list[str] | dict,
          use_wandb: bool,
          seed: int,
          render_video: bool,
@@ -235,15 +240,11 @@ def main(argv,
     """Run training and evaluation for the specified environment using RSL-RL."""
     del argv  # unused
     
-    if run_name is None:
-        raise ValueError("--run_name is required")
-    
     device_rank = 0 #int(device.split(":")[-1]) if "cuda" in device else 0
-
     
-    if config_is_string:
-        # Parse config overrides
+    if isinstance(config_overrides, list):
         config_overrides = parse_config_overrides(config_overrides)
+    if isinstance(rl_config_overrides, list):
         rl_config_overrides = parse_config_overrides(rl_config_overrides)
     
     # Generate checkpoint path
@@ -256,13 +257,12 @@ def main(argv,
     
     # Get RL config
     train_cfg = get_rl_config(env_name)
-    train_cfg.update(rl_config_overrides)
+    train_cfg.update_from_flattened_dict(rl_config_overrides)
     
     num_envs = train_cfg.num_envs
     
-    # Setup logging directory (RSL-RL uses logs/ directory)
-    logdir = os.path.abspath(os.path.join("logs", f"{run_name}"))
-    os.makedirs(logdir, exist_ok=True)
+    # Use checkpoint directory as log directory
+    logdir = str(ckpt_path)
     
     # Initialize Weights & Biases if required
     if use_wandb:
@@ -304,6 +304,9 @@ def main(argv,
         randomization_fn=randomizer,
         device_rank=device_rank,
     )
+
+    print(f"train_cfg: {train_cfg.to_dict()}")
+    print(f"env_cfg: {raw_env._config.to_dict()}")
     
     # Build RSL-RL config
     obs_size = raw_env.observation_size
