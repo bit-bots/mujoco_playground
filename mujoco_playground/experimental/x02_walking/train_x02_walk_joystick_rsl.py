@@ -29,6 +29,8 @@ from mujoco_playground._src.gait import draw_joystick_command
 import mujoco
 import torch
 
+from rsl_rl.runners import OnPolicyRunner
+
 # Suppress logs if you want
 logging.set_verbosity(logging.WARNING)
 
@@ -122,16 +124,24 @@ def save_params_rsl_rl(ckpt_path, runner, step=-1):
     print(f"Saved RSL-RL model to {filename}")
 
 
-def save_onnx_from_rsl_rl(ckpt_path, runner, raw_env, run_name, env_name):
+def save_onnx_from_rsl_rl(ckpt_path, runner : OnPolicyRunner, raw_env, run_name, env_name, step=None):
     """Export RSL-RL inference policy directly to ONNX format.
     
     This function extracts the actor network and normalization from RSL-RL
     and exports them as a single ONNX model.
+    
+    Args:
+        ckpt_path: Path to checkpoint directory
+        runner: RSL-RL runner instance
+        raw_env: Environment instance
+        run_name: Name of the run
+        env_name: Name of the environment
+        step: Optional step number for intermediate checkpoints (if None, uses final name)
     """
     try:
         import torch.onnx
         
-        # Get the policy module
+        # Get the policy module (DO NOT move to CPU - it will affect training!)
         policy = runner.alg.policy
         policy.eval()  # Set to evaluation mode
         
@@ -182,27 +192,28 @@ def save_onnx_from_rsl_rl(ckpt_path, runner, raw_env, run_name, env_name):
         wrapper_model = PolicyWrapper(policy)
         wrapper_model.eval()
         
-        # Create dummy input for ONNX export (concatenated actor observations)
-        dummy_input = torch.zeros((1, num_actor_obs), dtype=torch.float32, device=runner.device)
-        
-        # Export to ONNX
-        onnx_path = ckpt_path / f"{run_name}.onnx"
+        # Export to ONNX with step number if provided
+        if step is not None:
+            onnx_path = ckpt_path / f"{run_name}_step_{step:012}.onnx"
+        else:
+            onnx_path = ckpt_path / f"{run_name}.onnx"
         print(f"Exporting RSL-RL policy to ONNX: {onnx_path}")
-        print(f"  Input shape: {dummy_input.shape}")
         print(f"  Actor observation size: {num_actor_obs}")
         
-        # Move model to CPU for ONNX export (ONNX export works better on CPU)
-        wrapper_model_cpu = wrapper_model.cpu()
-        dummy_input_cpu = dummy_input.cpu()
+        # Create dummy input for ONNX export on the same device as the model
+        dummy_input = torch.zeros((1, num_actor_obs), dtype=torch.float32, device=runner.device)
         
         # Test forward pass before export
         with torch.no_grad():
-            test_output = wrapper_model_cpu(dummy_input_cpu)
+            test_output = wrapper_model(dummy_input)
+            print(f"  Input shape: {dummy_input.shape}")
             print(f"  Output shape: {test_output.shape}")
         
+        # Export directly on GPU - ONNX export supports GPU
+        # This avoids any device state changes that could affect training
         torch.onnx.export(
-            wrapper_model_cpu,
-            dummy_input_cpu,
+            wrapper_model,
+            dummy_input,
             str(onnx_path),
             input_names=["obs"],
             output_names=["continuous_actions"],
@@ -320,8 +331,33 @@ def main(argv,
     train_cfg.run_name = run_name
     
     train_cfg_dict = train_cfg.to_dict()
-    from rsl_rl.runners import OnPolicyRunner
     runner = OnPolicyRunner(brax_env, train_cfg_dict, logdir, device=device)
+    
+    # Wrap the runner's save method to also export ONNX for intermediate checkpoints
+    original_save = runner.save
+    def save_with_onnx(path):
+        """Wrapper around runner.save that also exports ONNX."""
+        # Call original save method
+        original_save(path)
+        
+        # Extract step number from path if available
+        # RSL-RL saves as model_XXXXXX.pt where XXXXXX is the step number
+        step = None
+        if path:
+            import re
+            match = re.search(r'model_(\d+)\.pt', path)
+            if match:
+                step = int(match.group(1))
+        
+        # Export ONNX for this checkpoint
+        if export_onnx:
+            try:
+                save_onnx_from_rsl_rl(ckpt_path, runner, raw_env, run_name, env_name, step=step)
+            except Exception as e:
+                print(f"Warning: Failed to export ONNX for checkpoint {path}: {e}")
+    
+    # Replace the save method
+    runner.save = save_with_onnx
     
     # Perform training
     # Note: RSL-RL logs to TensorBoard automatically, and wandb patches to capture those logs
