@@ -1,5 +1,5 @@
 import os
-os.environ['MUJOCO_GL'] = 'egl'  # Set the environment variable for EGL rendering
+os.environ['MUJOCO_GL'] = 'disable'  # Set the environment variable for EGL rendering
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -59,14 +59,14 @@ jax.config.update("jax_compilation_cache_dir", "/tmp/jax_cache")
 jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
 jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
 jax.config.update("jax_persistent_cache_enable_xla_caches", "xla_gpu_per_fusion_autotune_cache_dir")
-parser = ArgumentParser(description="Train a walking agent with joystick control.")
-parser.add_argument('-n', '--run-name', type=str, required=True, help='Name of the run for saving parameters')
-parser.add_argument('-g', '--gpu', type=str, default='0', help='GPU device to use')
-parser.add_argument('-e', '--env', type=str, default='X02JoystickFlatTerrain')
-parser.add_argument('-w', '--wandb', action='store_true', help='Enable Weights & Biases logging')
-parser.add_argument('-c', '--config', nargs="+", type=parse_kv, help='Overwrites for default configuration of environment' )
-parser.add_argument('-C', "--rl-config", nargs="+", type=parse_kv, help='Overwrites for default configuration of RL algorithm' )
-args = parser.parse_args()
+# parser = ArgumentParser(description="Train a walking agent with joystick control.")
+# parser.add_argument('-n', '--run-name', type=str, required=True, help='Name of the run for saving parameters')
+# parser.add_argument('-g', '--gpu', type=str, default='0', help='GPU device to use')
+# parser.add_argument('-e', '--env', type=str, default='X02JoystickFlatTerrain')
+# parser.add_argument('-w', '--wandb', action='store_true', help='Enable Weights & Biases logging')
+# parser.add_argument('-c', '--config', nargs="+", type=parse_kv, help='Overwrites for default configuration of environment' )
+# parser.add_argument('-C', "--rl-config", nargs="+", type=parse_kv, help='Overwrites for default configuration of RL algorithm' )
+# args = parser.parse_args()
 
 # os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
@@ -329,15 +329,9 @@ def main(
     # rl_config_overrides kommt bei Optuna als komplettes Dict der Brax PPO Konfiguration
     ppo_params = config_dict.ConfigDict(rl_config_overrides_dict)
 
-    #Für den Entwicklungsmodus habe ich hier kleinere werte eingefügt. Später die 5 zeilen entfernen
-    ppo_params.num_timesteps = int(2e6)
-    ppo_params.num_evals = 2
-    ppo_params.num_envs = 1024
-    print("DEV Override num_timesteps:", ppo_params.num_timesteps)
-    print("DEV Override num_envs:", ppo_params.num_envs)
-    #####################################
-    #print("Env Zeitschritt dt:", env.dt)
-    #print("PPO num_timesteps:", ppo_params.num_timesteps)
+    ppo_params.num_timesteps = int(100_000_000)
+    print("Env Zeitschritt dt:", env.dt)
+    print("PPO num_timesteps:", ppo_params.num_timesteps)
 
 
     # Brax Train Parameter vorbereiten

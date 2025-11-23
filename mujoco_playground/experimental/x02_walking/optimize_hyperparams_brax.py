@@ -1,10 +1,11 @@
 import optuna
 import os
-os.environ['MUJOCO_GL'] = 'osmesa' 
+os.environ['MUJOCO_GL'] = 'disable' 
 import argparse
 from functools import partial
 
 import jax
+from ml_collections import config_dict
 
 xla_flags = os.environ.get('XLA_FLAGS', '')
 xla_flags += ' --xla_gpu_triton_gemm_any=True'
@@ -20,7 +21,7 @@ from mujoco_playground.config import locomotion_params
 
 # Global variable to store device (set via command-line argument)
 
-def objective(trial, device: str="cuda:0", env_name: str="BerkeleyHumanoidJoystickFlatTerrain"):
+def objective(trial : optuna.Trial, device: str="cuda:0", env_name: str="BerkeleyHumanoidJoystickFlatTerrain"):
     """Optuna objective function for hyperparameter optimization.
     
     Returns the mean episode reward (to maximize).
@@ -29,7 +30,7 @@ def objective(trial, device: str="cuda:0", env_name: str="BerkeleyHumanoidJoysti
     
     # Algorithm hyperparameters
     num_updates_per_batch = trial.suggest_int("num_updates_per_batch", 1, 8)
-    num_minibatches = trial.suggest_int("num_minibatches", 1, 64, log=True)
+    num_minibatches = trial.suggest_categorical("num_minibatches", [32, 64])
     discounting = trial.suggest_float("discounting", 0.9, 0.99)
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 5e-3, log=True)
     max_grad_norm = trial.suggest_float("max_grad_norm", 0.2, 1.0)
@@ -39,7 +40,7 @@ def objective(trial, device: str="cuda:0", env_name: str="BerkeleyHumanoidJoysti
     action_repeat= trial.suggest_int("action_repeat", 1, 3)
     unroll_length=trial.suggest_int("unroll_length", 20, 60)
     entropy_cost= trial.suggest_float("entropy_cost", 1e-4, 1e-1)
-    batch_size= trial.suggest_int("batch_size", 256, 512)
+    batch_size= trial.suggest_categorical("batch_size", [256, 512, 1024])
     
     # policy Network hyperparameters
     num_policy_layers = trial.suggest_int("num_policy_layers", 2, 5)
@@ -74,19 +75,19 @@ def objective(trial, device: str="cuda:0", env_name: str="BerkeleyHumanoidJoysti
     base_config.batch_size = batch_size
     base_config.network_factory = network_factory
 
-    base_config.num_steps_per_env = num_steps_per_env
     base_config.num_envs = num_envs
-    # normalize to same number of experiences collected
-    base_config.max_iterations = 100_000_000 // (num_envs * num_steps_per_env) 
-
+    
     # Set training parameters for optimization (shorter training for faster trials)
-    base_config.experiment_name = "optuna_optimization"
+    run_name = f"optuna_trial_{trial.number}"
+    #base_config.experiment_name = "optuna_optimization"
+    base_config.seed = 1
+
     
     try:
         mean_reward, mean_episode_length = main(
             argv=[],
             env_name=env_name,
-            run_name=base_config.run_name,
+            run_name=run_name,
             device=device,
             config_overrides=dict(),
             rl_config_overrides=base_config.to_dict(),
@@ -107,7 +108,7 @@ def objective(trial, device: str="cuda:0", env_name: str="BerkeleyHumanoidJoysti
     return mean_reward
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Hyperparameter optimization for RSL-RL training")
+    parser = argparse.ArgumentParser(description="Hyperparameter optimization for Brax training")
     parser.add_argument(
         "--device",
         type=str,
