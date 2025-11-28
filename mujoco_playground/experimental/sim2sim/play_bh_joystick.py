@@ -22,7 +22,8 @@ import onnxruntime as rt
 
 from mujoco_playground._src.locomotion.berkeley_humanoid import berkeley_humanoid_constants
 from mujoco_playground._src.locomotion.berkeley_humanoid.base import get_assets
-from mujoco_playground.experimental.sim2sim.gamepad_reader import Gamepad
+#from mujoco_playground.experimental.sim2sim.gamepad_reader import Gamepad
+from mujoco_playground.experimental.sim2sim.keyboard_gamepad import KeyboardGamepad as Gamepad
 
 _HERE = epath.Path(__file__).parent
 _ONNX_DIR = _HERE / "onnx"
@@ -114,7 +115,7 @@ def load_callback(model=None, data=None):
   model.opt.timestep = sim_dt
 
   policy = OnnxController(
-      policy_path=(_ONNX_DIR / "bh_policy.onnx").as_posix(),
+      policy_path=(_ONNX_DIR / "bh_policy_25_11_27.onnx").as_posix(),
       default_angles=np.array(model.keyframe("home").qpos[7:]),
       ctrl_dt=ctrl_dt,
       n_substeps=n_substeps,

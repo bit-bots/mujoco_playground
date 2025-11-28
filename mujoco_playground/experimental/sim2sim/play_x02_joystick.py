@@ -90,10 +90,9 @@ class OnnxController:
     # Roll the history arrays to shift old values
     self._qvel_history = np.roll(self._qvel_history, 10, axis=0)
     self._qpos_error_history = np.roll(self._qpos_error_history, 10, axis=0)
-    
     # Insert new values at the beginning
     self._qvel_history[:10] = data.qvel[6:]
-    self._qpos_error_history[:10] = data.qpos[7:] - self._default_angles
+    self._qpos_error_history[:10] = data.qpos[7:] - (self._last_action * self._action_scale + self._default_angles)
     
     # Flatten history for observation
     qvel_history = self._qvel_history.flatten()

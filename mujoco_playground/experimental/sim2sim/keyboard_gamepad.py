@@ -3,12 +3,9 @@ import time
 import sys
 import os
 
-if os.name == 'nt':
-    import msvcrt
-else:
-    import termios
-    import tty
-    import select  # Import select
+import termios
+import tty
+import select  # Import select
 
 
 def _interpolate(value, old_max, new_scale, deadzone=0.01):
@@ -78,28 +75,20 @@ class KeyboardGamepad:
         """
         Reads keyboard input and updates velocities.
         """
-        if os.name == 'nt':
-            # Windows
+        # Linux and macOS
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(sys.stdin.fileno())
             while self.is_running:
-                if msvcrt.kbhit():
-                    key = msvcrt.getch().decode('utf-8').lower()
+                if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+                    key = sys.stdin.read(1).lower()
                     self.update_command(key)
                 time.sleep(0.01)  # Reduce CPU usage
-        else:
-            # Linux and macOS
-            fd = sys.stdin.fileno()
-            old_settings = termios.tcgetattr(fd)
-            try:
-                tty.setraw(sys.stdin.fileno())
-                while self.is_running:
-                    if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
-                        key = sys.stdin.read(1).lower()
-                        self.update_command(key)
-                    time.sleep(0.01)  # Reduce CPU usage
-            except Exception as e:
-                print(f"Error reading input: {e}")
-            finally:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        except Exception as e:
+            print(f"Error reading input: {e}")
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
     def update_command(self, key):
         """
@@ -116,7 +105,7 @@ class KeyboardGamepad:
                 self.vx = 0.0
                 self.vy = 0.0
                 self.wz = 0.0
-                print(f"Velocity reset to zero at {time.time()}")
+                print(f"Velocity reset to zero", end='\r')
             else:
                 # Update velocities
                 self.vx += dx
@@ -127,7 +116,7 @@ class KeyboardGamepad:
                 self.vx = max(-self.max_speed, min(self.vx, self.max_speed))
                 self.vy = max(-self.max_speed, min(self.vy, self.max_speed))
                 self.wz = max(-self.max_speed, min(self.wz, self.max_speed))
-            print(f"Velocity changed to ({self.vx:.2f}, {self.vy:.2f}, {self.wz:.2f}) at {time.time()}")
+            print(f"Velocity changed to ({self.vy:.2f}, {self.vx:.2f}, {self.wz:.2f})", end='\r')
 
     def get_command(self):
         """
