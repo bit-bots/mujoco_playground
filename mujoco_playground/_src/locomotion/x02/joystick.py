@@ -444,11 +444,11 @@ class Joystick(x02_base.X02Base):
 
     # TODO noisy history
     # Update history.
-    qvel_history = jp.roll(info["qvel_history"], 10).at[:10].set(data.qvel[6:]) 
+    qvel_history = jp.roll(info["qvel_history"], 10).at[:10].set(noisy_joint_vel) 
     qpos_error_history = (
         jp.roll(info["qpos_error_history"], 10)
         .at[:10]
-        .set(data.qpos[7:] - info["motor_targets"]) # 7: because 3 pos, 4 quat rotation, twist is only 6
+        .set(noisy_joint_angles - info["motor_targets"]) # 7: because 3 pos, 4 quat rotation, twist is only 6
     )
     info["qvel_history"] = qvel_history
     info["qpos_error_history"] = qpos_error_history
