@@ -14,10 +14,19 @@
 # ==============================================================================
 """Train a PPO agent using JAX on the specified environment."""
 
+
+import os
+
+# Set MUJOCO_GL before importing mujoco or other libraries that might use it
+os.environ["MUJOCO_GL"] = "egl"
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+xla_flags = os.environ.get("XLA_FLAGS", "")
+xla_flags += " --xla_gpu_triton_gemm_any=True"
+os.environ["XLA_FLAGS"] = xla_flags
+
 import datetime
 import functools
 import json
-import os
 import time
 import warnings
 
@@ -30,6 +39,7 @@ from brax.training.agents.ppo import train as ppo
 from etils import epath
 import jax
 import jax.numpy as jp
+import numpy as np
 import mediapy as media
 from ml_collections import config_dict
 import mujoco
@@ -39,15 +49,10 @@ from mujoco_playground import wrapper
 from mujoco_playground.config import dm_control_suite_params
 from mujoco_playground.config import locomotion_params
 from mujoco_playground.config import manipulation_params
+from mujoco_playground._src.gait import draw_joystick_command
 import tensorboardX
 import wandb
 
-
-xla_flags = os.environ.get("XLA_FLAGS", "")
-xla_flags += " --xla_gpu_triton_gemm_any=True"
-os.environ["XLA_FLAGS"] = xla_flags
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-os.environ["MUJOCO_GL"] = "egl"
 
 # Ignore the info logs from brax
 logging.set_verbosity(logging.WARNING)
@@ -161,6 +166,10 @@ _TRAINING_METRICS_STEPS = flags.DEFINE_integer(
     "Number of steps between logging training metrics. Increase if training"
     " experiences slowdown.",
 )
+_RUN_NAME = flags.DEFINE_string(
+  "run_name",
+  None,
+  "Run name for logging and checkpointing")
 
 
 def get_rl_config(env_name: str) -> config_dict.ConfigDict:
@@ -274,7 +283,7 @@ def main(argv):
   # Generate unique experiment name
   now = datetime.datetime.now()
   timestamp = now.strftime("%Y%m%d-%H%M%S")
-  exp_name = f"{_ENV_NAME.value}-{timestamp}"
+  exp_name = f"{_ENV_NAME.value}-{_RUN_NAME.value}-{timestamp}"
   if _SUFFIX.value is not None:
     exp_name += f"-{_SUFFIX.value}"
   print(f"Experiment name: {exp_name}")
@@ -286,7 +295,7 @@ def main(argv):
 
   # Initialize Weights & Biases if required
   if _USE_WANDB.value and not _PLAY_ONLY.value:
-    wandb.init(project="mjxrl", name=exp_name)
+    wandb.init(project="mujoco_playground", entity="bitbots", name=exp_name)
     wandb.config.update(env_cfg.to_dict())
     wandb.config.update({"env_name": _ENV_NAME.value})
 
@@ -453,6 +462,9 @@ def main(argv):
   inference_fn = make_inference_fn(params, deterministic=True)
   jit_inference_fn = jax.jit(inference_fn)
 
+  # Check if environment supports command visualization
+  has_torso_body_id = hasattr(eval_env, "_torso_body_id")
+
   # Run evaluation rollouts.
   def do_rollout(rng, state):
     empty_data = state.data.__class__(
@@ -460,6 +472,8 @@ def main(argv):
     )  # pytype: disable=attribute-error
     empty_traj = state.__class__(**{k: None for k in state.__annotations__})  # pytype: disable=attribute-error
     empty_traj = empty_traj.replace(data=empty_data)
+
+    modify_scene_fns = []
 
     def step(carry, _):
       state, rng = carry
@@ -474,28 +488,74 @@ def main(argv):
           "data.mocap_pos": state.data.mocap_pos,
           "data.mocap_quat": state.data.mocap_quat,
           "data.xfrc_applied": state.data.xfrc_applied,
+          "data.xpos": state.data.xpos,
+          "data.xmat": state.data.xmat,
       })
       if _VISION.value:
         traj_data = jax.tree_util.tree_map(lambda x: x[0], traj_data)
-      return (state, rng), traj_data
+      
+      # Also store info for visualization (if available)
+      info_dict = {}
+      if hasattr(state, "info") and state.info is not None:
+        # Store command if it exists
+        if "command" in state.info:
+          info_dict["command"] = state.info["command"]
+      
+      return (state, rng), (traj_data, info_dict)
 
-    _, traj = jax.lax.scan(
+    _, (traj, info_list) = jax.lax.scan(
         step, (state, rng), None, length=_EPISODE_LENGTH.value
     )
-    return traj
+    return traj, info_list
 
   rng = jax.random.split(jax.random.PRNGKey(_SEED.value), _NUM_VIDEOS.value)
   reset_states = jax.jit(jax.vmap(eval_env.reset))(rng)
   if _VISION.value:
     reset_states = jax.tree_util.tree_map(lambda x: x[0], reset_states)
-  traj_stacked = jax.jit(jax.vmap(do_rollout))(rng, reset_states)
+  traj_stacked, info_stacked = jax.jit(jax.vmap(do_rollout))(rng, reset_states)
   trajectories = [None] * _NUM_VIDEOS.value
+  all_modify_scene_fns = [None] * _NUM_VIDEOS.value
+  
+  # Extract modify_scene_fns from trajectories after they're computed
   for i in range(_NUM_VIDEOS.value):
     t = jax.tree.map(lambda x, i=i: x[i], traj_stacked)
+    info_list = jax.tree.map(lambda x, i=i: x[i], info_stacked)
     trajectories[i] = [
         jax.tree.map(lambda x, j=j: x[j], t)
         for j in range(_EPISODE_LENGTH.value)
     ]
+    # Create modify_scene_fns for command visualization if supported
+    if has_torso_body_id:
+      modify_scene_fns = []
+      for j, state in enumerate(trajectories[i]):
+        # Extract info for this timestep
+        info_dict = {}
+        if j < len(info_list):
+          step_info = jax.tree.map(lambda x, j=j: x[j], info_list)
+          if isinstance(step_info, dict) and "command" in step_info:
+            info_dict["command"] = step_info["command"]
+        
+        if "command" in info_dict and info_dict["command"] is not None:
+          # Extract position and orientation from state (convert from JAX to numpy)
+          xyz = np.array(state.data.xpos[eval_env._torso_body_id])
+          xyz += np.array([0, 0, 0.2])  # Offset above torso
+          x_axis = state.data.xmat[eval_env._torso_body_id, 0]
+          yaw = -np.arctan2(x_axis[1], x_axis[0])
+          cmd = np.array(info_dict["command"])
+          scl = np.linalg.norm(cmd)
+          
+          modify_scene_fns.append(
+              functools.partial(
+                  draw_joystick_command,
+                  cmd=cmd,
+                  xyz=xyz,
+                  theta=yaw,
+                  scl=scl,
+              )
+          )
+        else:
+          modify_scene_fns.append(None)
+      all_modify_scene_fns[i] = modify_scene_fns
 
   # Render and save the rollout.
   render_every = 2
@@ -503,12 +563,24 @@ def main(argv):
   print(f"FPS for rendering: {fps}")
   scene_option = mujoco.MjvOption()
   scene_option.flags[mujoco.mjtVisFlag.mjVIS_TRANSPARENT] = False
-  scene_option.flags[mujoco.mjtVisFlag.mjVIS_PERTFORCE] = False
+  scene_option.flags[mujoco.mjtVisFlag.mjVIS_PERTFORCE] = True
   scene_option.flags[mujoco.mjtVisFlag.mjVIS_CONTACTFORCE] = False
   for i, rollout in enumerate(trajectories):
     traj = rollout[::render_every]
+    # Subsample modify_scene_fns to match trajectory (keep None values for alignment)
+    mod_fns = None
+    if all_modify_scene_fns[i] is not None:
+      mod_fns = all_modify_scene_fns[i][::render_every]
+      # Check if all are None, if so set to None
+      if all(fn is None for fn in mod_fns):
+        mod_fns = None
     frames = eval_env.render(
-        traj, height=480, width=640, scene_option=scene_option
+        traj,
+        height=480,
+        width=640,
+        scene_option=scene_option,
+        camera="track",
+        modify_scene_fns=mod_fns,
     )
     media.write_video(f"rollout{i}.mp4", frames, fps=fps)
     print(f"Rollout video saved as 'rollout{i}.mp4'.")
