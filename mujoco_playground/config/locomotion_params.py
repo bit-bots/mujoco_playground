@@ -211,6 +211,8 @@ def rsl_rl_config(
           # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
           activation="elu",
           class_name="ActorCritic",
+          state_dependent_std=True,
+          noise_std_type="log",
       ),
       algorithm=config_dict.create(
           class_name="PPO",
@@ -230,7 +232,7 @@ def rsl_rl_config(
           symmetry_cfg=config_dict.create(
             use_data_augmentation=False,
             use_mirror_loss=False,
-            data_augmentation_func="",
+            data_augmentation_func=None,
             mirror_loss_coeff=0.3,
           ),
       ),
@@ -255,17 +257,18 @@ def rsl_rl_config(
       "G1Joystick",
       "Go1JoystickFlatTerrain",
   ):
-    rl_config.max_iterations = 10
-    rl_config.algorithm.entropy_coef = 0.005
+    rl_config.max_iterations = 500
+    rl_config.algorithm.entropy_coef = 0.001
     rl_config.algorithm.num_learning_epochs = 4
-    rl_config.algorithm.num_mini_batches = 32
+    rl_config.algorithm.num_mini_batches = 4
     rl_config.algorithm.gamma = 0.97
   if env_name == "BerkeleyHumanoidJoystickFlatTerrain":
-    rl_config.algorithm.symmetry_cfg.use_data_augmentation = False
-    rl_config.algorithm.symmetry_cfg.use_mirror_loss = True
-    rl_config.algorithm.symmetry_cfg.data_augmentation_func = \
-      "mujoco_playground.experimental.x02_walking.data_augmentation:get_symmetric_states_berkeley"
-    rl_config.algorithm.symmetry_cfg.mirror_loss_coeff = 0.3
+    rl_config.algorithm.symmetry_cfg = None
+    #rl_config.algorithm.symmetry_cfg.use_data_augmentation = False
+    #rl_config.algorithm.symmetry_cfg.use_mirror_loss = True
+    #rl_config.algorithm.symmetry_cfg.data_augmentation_func = \
+    #  "mujoco_playground.experimental.x02_walking.data_augmentation:get_symmetric_states_berkeley"
+    #rl_config.algorithm.symmetry_cfg.mirror_loss_coeff = 0.3
   if env_name == "Go1JoystickFlatTerrain":
     rl_config.algorithm.learning_rate = 3e-4
     rl_config.algorithm.schedule = "fixed"
