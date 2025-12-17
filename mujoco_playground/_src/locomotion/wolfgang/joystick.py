@@ -221,7 +221,7 @@ class Joystick(wolfgang_base.WolfgangEnv):
         self.mj_model,
         qpos=qpos,
         qvel=qvel,
-        ctrl=qpos[7:],
+        ctrl=qpos[7::2],
         impl=self.mjx_model.impl.value,
         nconmax=self._config.nconmax,
         njmax=self._config.njmax,
@@ -382,8 +382,8 @@ class Joystick(wolfgang_base.WolfgangEnv):
         * self._config.noise_config.level
         * self._config.noise_config.scales.gravity
     )
-
-    joint_angles = data.qpos[7:]
+    # sum joint + backlash joint angles
+    joint_angles = data.qpos[7::2] + data.qpos[8::2]
     info["rng"], noise_rng = jax.random.split(info["rng"])
     noisy_joint_angles = (
         joint_angles
@@ -392,7 +392,7 @@ class Joystick(wolfgang_base.WolfgangEnv):
         * self._qpos_noise_scale
     )
 
-    joint_vel = data.qvel[6:]
+    joint_vel = data.qvel[6::2] + data.qvel[7::2]
     info["rng"], noise_rng = jax.random.split(info["rng"])
     noisy_joint_vel = (
         joint_vel
