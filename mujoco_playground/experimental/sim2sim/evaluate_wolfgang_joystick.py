@@ -182,11 +182,33 @@ def main(argv):
   mujoco.set_mjcb_control(policy.get_control)
 
   commands = [
-      (0.5, 0.0, 0.0),  # forward
-      (0.0, 0.5, 0.0),  # left
-      (0.0, -0.5, 0.0),  # right
+      (0.0, 0.0, 0.0),  # stand still
+      (0.05, 0.0, 0.0),  # forward
+      (0.1, 0.0, 0.0),  # forward
+      (0.15, 0.0, 0.0),  # forward
+      (0.2, 0.0, 0.0),  # forward
+      (0.25, 0.0, 0.0),  # forward
+      (0.3, 0.0, 0.0),  # forward
+      (0.0, 0.05, 0.0),  # left
+      (0.0, 0.1, 0.0),  # left
+      (0.0, 0.15, 0.0),  # left
+      (0.0, 0.2, 0.0),  # left
+      (0.0, 0.25, 0.0),  # left
+      (0.0, 0.3, 0.0),  # left
+      (0.0, -0.05, 0.0),  # right
+      (0.0, -0.1, 0.0),  # right
+      (0.0, -0.15, 0.0),  # right
+      (0.0, -0.2, 0.0),  # right
+      (0.0, -0.25, 0.0),  # right
+      (0.0, -0.3, 0.0),  # right
+      (0.0, 0.0, 0.25),  # turn left
       (0.0, 0.0, 0.5),  # turn left
+      (0.0, 0.0, 0.75),  # turn left
+      (0.0, 0.0, 1.0),  # turn left
+      (0.0, 0.0, -0.25),  # turn right
       (0.0, 0.0, -0.5),  # turn right
+      (0.0, 0.0, -0.75),  # turn right
+      (0.0, 0.0, -1.0),  # turn right
   ]
   
   with viewer.launch_passive(model, data) as mj_viewer:
