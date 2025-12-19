@@ -133,7 +133,7 @@ def load_callback(model=None, data=None):
 
   policy = OnnxController(
       policy_path=(_ONNX_DIR / _ONNX_MODEL.value).as_posix(),
-      default_angles=np.array(model.keyframe("home").qpos[7:]),
+      default_angles=np.array(model.keyframe("home").qpos[7::2]),
       ctrl_dt=ctrl_dt,
       n_substeps=n_substeps,
       action_scale=0.5,
