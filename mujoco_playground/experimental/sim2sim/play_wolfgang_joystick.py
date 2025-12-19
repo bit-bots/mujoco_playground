@@ -14,6 +14,8 @@
 # ==============================================================================
 """Deploy an MJX policy in ONNX format to C MuJoCo and play with it."""
 
+from absl import app
+from absl import flags
 from etils import epath
 import mujoco
 import mujoco.viewer as viewer
@@ -26,6 +28,13 @@ from mujoco_playground.experimental.sim2sim.keyboard_gamepad import KeyboardGame
 
 _HERE = epath.Path(__file__).parent
 _ONNX_DIR = _HERE / "onnx"
+
+_BACKLASH = flags.DEFINE_float(
+    "backlash", 0.05, "Backlash value for backlash joints (in radians)"
+)
+_ONNX_MODEL = flags.DEFINE_string(
+    "onnx_model", "wolfgang_policy.onnx", "Name of the ONNX model file"
+)
 
 
 class OnnxController:
@@ -105,6 +114,14 @@ def load_callback(model=None, data=None):
       assets=get_assets(),
   )
 
+  # Set backlash joint ranges
+  backlash_value = _BACKLASH.value
+  for i in range(model.njnt):
+    joint_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, i)
+    if joint_name and joint_name.endswith("_backlash"):
+      joint_id = model.joint(joint_name).id
+      model.jnt_range[joint_id] = [-backlash_value, backlash_value]
+
   data = mujoco.MjData(model)
 
   mujoco.mj_resetDataKeyframe(model, data, 1)
@@ -115,7 +132,7 @@ def load_callback(model=None, data=None):
   model.opt.timestep = sim_dt
 
   policy = OnnxController(
-      policy_path=(_ONNX_DIR / "wolfgang_policy.onnx").as_posix(),
+      policy_path=(_ONNX_DIR / _ONNX_MODEL.value).as_posix(),
       default_angles=np.array(model.keyframe("home").qpos[7:]),
       ctrl_dt=ctrl_dt,
       n_substeps=n_substeps,
@@ -130,5 +147,10 @@ def load_callback(model=None, data=None):
   return model, data
 
 
-if __name__ == "__main__":
+def main(argv):
+  del argv  # unused
   viewer.launch(loader=load_callback)
+
+
+if __name__ == "__main__":
+  app.run(main)
