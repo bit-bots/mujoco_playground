@@ -5,6 +5,7 @@ from absl import flags
 from absl import logging
 from etils import epath
 import mujoco
+import mujoco.viewer
 import numpy as np
 import onnxruntime as rt
 
@@ -22,6 +23,9 @@ _ONNX_MODEL = flags.DEFINE_string(
 )
 _MAX_TIME = flags.DEFINE_float(
     "max_time", 30.0, "Maximum simulation time per test (in seconds)"
+)
+_VISUALIZE = flags.DEFINE_boolean(
+    "visualize", True, "Whether to visualize the evaluation"
 )
 
 
@@ -116,6 +120,25 @@ def check_fall(model: mujoco.MjModel, data: mujoco.MjData) -> bool:
   return bool(fall_termination or has_nan)
 
 
+class EvaluationState:
+  """State for evaluation with visualization."""
+  
+  def __init__(self, model, data, controller, test_commands, max_time, sim_dt):
+    self.model = model
+    self.data = data
+    self.controller = controller
+    self.test_commands = test_commands
+    self.max_time = max_time
+    self.sim_dt = sim_dt
+    
+    self.current_test_idx = 0
+    self.results = []
+    self.step_count = 0
+    self.actual_velocities = []
+    self.test_started = False
+    self.test_finished = False
+
+
 def evaluate_command(
     model: mujoco.MjModel,
     data: mujoco.MjData,
@@ -168,6 +191,82 @@ def evaluate_command(
       "final_time": times[-1] if times else 0.0,
       "fell": time_to_fall is not None,
   }
+
+
+def make_control_callback(eval_state: EvaluationState):
+  """Create a control callback for visualization."""
+  def control_callback(model, data):
+    if eval_state.test_finished:
+      # Move to next test
+      eval_state.current_test_idx += 1
+      eval_state.test_finished = False
+      eval_state.test_started = False
+      eval_state.step_count = 0
+      eval_state.actual_velocities = []
+      
+      if eval_state.current_test_idx >= len(eval_state.test_commands):
+        # All tests done - pause simulation
+        return
+    
+    if not eval_state.test_started:
+      # Start new test
+      cmd = eval_state.test_commands[eval_state.current_test_idx]
+      eval_state.controller.set_command(np.array(cmd))
+      eval_state.controller.reset()
+      mujoco.mj_resetDataKeyframe(eval_state.model, eval_state.data, 1)
+      eval_state.test_started = True
+      logging.info(f"Test {eval_state.current_test_idx+1}/{len(eval_state.test_commands)}: Command {cmd}")
+    
+    # Apply control
+    eval_state.controller.get_control(model, data)
+    
+    # Record metrics
+    actual_linvel = data.sensor("local_linvel").data.copy()
+    eval_state.actual_velocities.append(actual_linvel)
+    eval_state.step_count += 1
+    
+    # Check for fall or timeout
+    current_time = eval_state.step_count * eval_state.sim_dt
+    max_steps = int(eval_state.max_time / eval_state.sim_dt)
+    
+    if check_fall(model, data) or eval_state.step_count >= max_steps:
+      # Finish current test
+      cmd = eval_state.test_commands[eval_state.current_test_idx]
+      
+      # Compute average velocity
+      if len(eval_state.actual_velocities) > 100:
+        avg_velocities = np.mean(eval_state.actual_velocities[100:], axis=0)
+      else:
+        avg_velocities = (
+            np.mean(eval_state.actual_velocities, axis=0)
+            if eval_state.actual_velocities
+            else np.array([0.0, 0.0, 0.0])
+        )
+      
+      time_to_fall = current_time if check_fall(model, data) else None
+      
+      result = {
+          "command": cmd.copy(),
+          "time_to_fall": time_to_fall if time_to_fall is not None else eval_state.max_time,
+          "avg_actual_velocity": avg_velocities,
+          "final_time": current_time,
+          "fell": time_to_fall is not None,
+      }
+      eval_state.results.append(result)
+      
+      # Print result
+      cmd_str = f"[{cmd[0]:.2f}, {cmd[1]:.2f}, {cmd[2]:.2f}]"
+      avg_vel_str = f"[{avg_velocities[0]:.3f}, {avg_velocities[1]:.3f}, {avg_velocities[2]:.3f}]"
+      status = f"Fell at {time_to_fall:.2f}s" if result['fell'] else f"Survived {current_time:.2f}s"
+      
+      logging.info(f"  Command: {cmd_str}")
+      logging.info(f"  Avg actual velocity: {avg_vel_str}")
+      logging.info(f"  Status: {status}")
+      logging.info("")
+      
+      eval_state.test_finished = True
+  
+  return control_callback
 
 
 def main(argv):
@@ -224,29 +323,47 @@ def main(argv):
   ]
 
   # Run evaluations
-  results = []
   logging.info(f"Evaluating {len(test_commands)} commands...")
   logging.info(f"Using ONNX model: {_ONNX_MODEL.value}")
   logging.info(f"Backlash value: {_BACKLASH.value}")
   logging.info(f"Max time per test: {_MAX_TIME.value}s")
   logging.info("-" * 80)
 
-  for i, cmd in enumerate(test_commands):
-    logging.info(f"Test {i+1}/{len(test_commands)}: Command {cmd}")
-    result = evaluate_command(
-        model, data, controller, np.array(cmd), _MAX_TIME.value, sim_dt
+  if _VISUALIZE.value:
+    # Use viewer for visualization
+    eval_state = EvaluationState(
+        model, data, controller, test_commands, _MAX_TIME.value, sim_dt
     )
-    results.append(result)
+    control_callback = make_control_callback(eval_state)
     
-    # Print result
-    cmd_str = f"[{cmd[0]:.2f}, {cmd[1]:.2f}, {cmd[2]:.2f}]"
-    avg_vel_str = f"[{result['avg_actual_velocity'][0]:.3f}, {result['avg_actual_velocity'][1]:.3f}, {result['avg_actual_velocity'][2]:.3f}]"
-    status = f"Fell at {result['time_to_fall']:.2f}s" if result['fell'] else f"Survived {result['final_time']:.2f}s"
+    def load_callback(viewer_model=None, viewer_data=None):
+      mujoco.set_mjcb_control(None)
+      mujoco.set_mjcb_control(control_callback)
+      return model, data
     
-    logging.info(f"  Command: {cmd_str}")
-    logging.info(f"  Avg actual velocity: {avg_vel_str}")
-    logging.info(f"  Status: {status}")
-    logging.info("")
+    logging.info("Starting visualization...")
+    logging.info("Close the viewer window when evaluation is complete.")
+    mujoco.viewer.launch(loader=load_callback)
+    results = eval_state.results
+  else:
+    # Run without visualization
+    results = []
+    for i, cmd in enumerate(test_commands):
+      logging.info(f"Test {i+1}/{len(test_commands)}: Command {cmd}")
+      result = evaluate_command(
+          model, data, controller, np.array(cmd), _MAX_TIME.value, sim_dt
+      )
+      results.append(result)
+      
+      # Print result
+      cmd_str = f"[{cmd[0]:.2f}, {cmd[1]:.2f}, {cmd[2]:.2f}]"
+      avg_vel_str = f"[{result['avg_actual_velocity'][0]:.3f}, {result['avg_actual_velocity'][1]:.3f}, {result['avg_actual_velocity'][2]:.3f}]"
+      status = f"Fell at {result['time_to_fall']:.2f}s" if result['fell'] else f"Survived {result['final_time']:.2f}s"
+      
+      logging.info(f"  Command: {cmd_str}")
+      logging.info(f"  Avg actual velocity: {avg_vel_str}")
+      logging.info(f"  Status: {status}")
+      logging.info("")
 
   # Print summary
   logging.info("=" * 80)
