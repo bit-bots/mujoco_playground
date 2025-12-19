@@ -37,6 +37,7 @@ def default_config() -> config_dict.ConfigDict:
       action_repeat=1,
       action_scale=0.5,
       history_len=1,
+      backlash=0.002,
       soft_joint_pos_limit_factor=0.95,
       noise_config=config_dict.create(
           level=1.0,  # Set to 0.0 to disable noise.
@@ -120,10 +121,13 @@ class Joystick(wolfgang_base.WolfgangEnv):
 
   def _post_init(self) -> None:
     self._init_q = jp.array(self._mj_model.keyframe("home").qpos)
-    self._default_pose = jp.array(self._mj_model.keyframe("home").qpos[7:])
+    self._default_pose = jp.array(self._mj_model.keyframe("home").qpos[7::2])
 
     # Note: First joint is freejoint.
-    self._lowers, self._uppers = self.mj_model.jnt_range[1:].T
+    # With backlash joints, jnt_range[1:] includes both motor and backlash joints.
+    # Extract only motor joints (every other joint starting from index 1).
+    motor_jnt_range = self.mj_model.jnt_range[1::2]
+    self._lowers, self._uppers = motor_jnt_range.T
     c = (self._lowers + self._uppers) / 2
     r = self._uppers - self._lowers
     self._soft_lowers = c - 0.5 * r * self._config.soft_joint_pos_limit_factor
@@ -133,14 +137,16 @@ class Joystick(wolfgang_base.WolfgangEnv):
     hip_joint_names = ["HR", "HAA"]
     for side in ["LL", "LR"]:
       for joint_name in hip_joint_names:
-        hip_indices.append(
-            self._mj_model.joint(f"{side}_{joint_name}").qposadr - 7
-        )
+        # Map qposadr to index in qpos[7::2] array (motor joints only)
+        qposadr = self._mj_model.joint(f"{side}_{joint_name}").qposadr
+        hip_indices.append((qposadr - 7) // 2)
     self._hip_indices = jp.array(hip_indices)
 
     knee_indices = []
     for side in ["LL", "LR"]:
-      knee_indices.append(self._mj_model.joint(f"{side}_KFE").qposadr - 7)
+      # Map qposadr to index in qpos[7::2] array (motor joints only)
+      qposadr = self._mj_model.joint(f"{side}_KFE").qposadr
+      knee_indices.append((qposadr - 7) // 2)
     self._knee_indices = jp.array(knee_indices)
 
     # fmt: off
@@ -207,8 +213,11 @@ class Joystick(wolfgang_base.WolfgangEnv):
 
     # qpos[7:]=*U(0.5, 1.5)
     rng, key = jax.random.split(rng)
-    qpos = qpos.at[7:].set(
-        qpos[7:] * jax.random.uniform(key, (12,), minval=0.5, maxval=1.5)
+    qpos = qpos.at[7::2].set(
+        qpos[7::2] * jax.random.uniform(key, (12,), minval=0.5, maxval=1.5)
+    )
+    qpos = qpos.at[8::2].set(
+        qpos[8::2] * jax.random.uniform(key, (12,), minval=-0.05, maxval=0.05)
     )
 
     # d(xyzrpy)=U(-0.5, 0.5)
@@ -221,7 +230,7 @@ class Joystick(wolfgang_base.WolfgangEnv):
         self.mj_model,
         qpos=qpos,
         qvel=qvel,
-        ctrl=qpos[7:],
+        ctrl=qpos[7::2],
         impl=self.mjx_model.impl.value,
         nconmax=self._config.nconmax,
         njmax=self._config.njmax,
@@ -382,8 +391,8 @@ class Joystick(wolfgang_base.WolfgangEnv):
         * self._config.noise_config.level
         * self._config.noise_config.scales.gravity
     )
-
-    joint_angles = data.qpos[7:]
+    # sum joint + backlash joint angles
+    joint_angles = data.qpos[7::2] + data.qpos[8::2]
     info["rng"], noise_rng = jax.random.split(info["rng"])
     noisy_joint_angles = (
         joint_angles
@@ -392,7 +401,7 @@ class Joystick(wolfgang_base.WolfgangEnv):
         * self._qpos_noise_scale
     )
 
-    joint_vel = data.qvel[6:]
+    joint_vel = data.qvel[6::2] + data.qvel[7::2]
     info["rng"], noise_rng = jax.random.split(info["rng"])
     noisy_joint_vel = (
         joint_vel
@@ -479,7 +488,7 @@ class Joystick(wolfgang_base.WolfgangEnv):
         "action_rate": self._cost_action_rate(
             action, info["last_act"], info["last_last_act"]
         ),
-        "energy": self._cost_energy(data.qvel[6:], data.actuator_force),
+        "energy": self._cost_energy(data.qvel[6::2], data.actuator_force),
         # Feet related rewards.
         "feet_slip": self._cost_feet_slip(data, contact, info),
         "feet_clearance": self._cost_feet_clearance(data, info),
@@ -562,8 +571,10 @@ class Joystick(wolfgang_base.WolfgangEnv):
   # Other rewards.
 
   def _cost_joint_pos_limits(self, qpos: jax.Array) -> jax.Array:
-    out_of_limits = -jp.clip(qpos - self._soft_lowers, None, 0.0)
-    out_of_limits += jp.clip(qpos - self._soft_uppers, 0.0, None)
+    # qpos[7:] contains motor and backlash joints interleaved, extract motor joints
+    motor_qpos = qpos[::2]
+    out_of_limits = -jp.clip(motor_qpos - self._soft_lowers, None, 0.0)
+    out_of_limits += jp.clip(motor_qpos - self._soft_uppers, 0.0, None)
     return jp.sum(out_of_limits)
 
   def _cost_stand_still(
@@ -572,7 +583,7 @@ class Joystick(wolfgang_base.WolfgangEnv):
       qpos: jax.Array,
   ) -> jax.Array:
     cmd_norm = jp.linalg.norm(commands)
-    return jp.sum(jp.abs(qpos - self._default_pose)) * (cmd_norm < 0.1)
+    return jp.sum(jp.abs(qpos[::2] - self._default_pose)) * (cmd_norm < 0.1)
 
   def _cost_termination(self, done: jax.Array) -> jax.Array:
     return done
@@ -585,21 +596,27 @@ class Joystick(wolfgang_base.WolfgangEnv):
   def _cost_joint_deviation_hip(
       self, qpos: jax.Array, cmd: jax.Array
   ) -> jax.Array:
+    # qpos[7:] contains motor and backlash joints interleaved, extract motor joints
+    motor_qpos = qpos[::2]
     cost = jp.sum(
-        jp.abs(qpos[self._hip_indices] - self._default_pose[self._hip_indices])
+        jp.abs(motor_qpos[self._hip_indices] - self._default_pose[self._hip_indices])
     )
     cost *= jp.abs(cmd[1]) > 0.1
     return cost
 
   def _cost_joint_deviation_knee(self, qpos: jax.Array) -> jax.Array:
+    # qpos[7:] contains motor and backlash joints interleaved, extract motor joints
+    motor_qpos = qpos[::2]
     return jp.sum(
         jp.abs(
-            qpos[self._knee_indices] - self._default_pose[self._knee_indices]
+            motor_qpos[self._knee_indices] - self._default_pose[self._knee_indices]
         )
     )
 
   def _cost_pose(self, qpos: jax.Array) -> jax.Array:
-    return jp.sum(jp.square(qpos - self._default_pose) * self._weights)
+    # qpos[7:] contains motor and backlash joints interleaved, extract motor joints
+    motor_qpos = qpos[::2]
+    return jp.sum(jp.square(motor_qpos - self._default_pose) * self._weights)
 
   # Feet related rewards.
 

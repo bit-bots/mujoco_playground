@@ -70,8 +70,8 @@ class OnnxController:
     imu_xmat = data.site_xmat[model.site("imu").id].reshape(3, 3)
     gravity = imu_xmat.T @ np.array([0, 0, -1])
 
-    joint_angles = data.qpos[7:] - self._default_angles
-    joint_velocities = data.qvel[6:]
+    joint_angles = data.qpos[7::2] - self._default_angles
+    joint_velocities = data.qvel[6::2]
     phase = np.concatenate([np.cos(self._phase), np.sin(self._phase)])
     command = self._joystick.get_command()
     obs = np.hstack([

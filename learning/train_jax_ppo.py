@@ -171,6 +171,8 @@ _RUN_NAME = flags.DEFINE_string(
   None,
   "Run name for logging and checkpointing")
 
+_BACKLASH = flags.DEFINE_float("backlash", 0.02, "Backlash value")
+
 
 def get_rl_config(env_name: str) -> config_dict.ConfigDict:
   if env_name in mujoco_playground.manipulation._envs:
@@ -269,6 +271,8 @@ def main(argv):
   if _VISION.value:
     env_cfg.vision = True
     env_cfg.vision_config.render_batch_size = ppo_params.num_envs
+  if _BACKLASH.present:
+    env_cfg.backlash = _BACKLASH.value
   env = registry.load(_ENV_NAME.value, config=env_cfg)
   if _RUN_EVALS.present:
     ppo_params.run_evals = _RUN_EVALS.value
