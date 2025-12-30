@@ -16,7 +16,7 @@
     <mesh name="R_knee_pitch_link" file="R_knee_pitch_link.STL"/>
     <mesh name="R_ankle_pitch_link" file="R_ankle_pitch_link.STL"/>
     <mesh name="waist_yaw_link" file="waist_yaw_link.STL"/>
-    <mesh name="torso_link" file="torso_link.STL"/>
+    <mesh name="torso_link" file="torso_link.STL"/> 
     <mesh name="logo_link" file="logo_link.STL"/>
     <mesh name="head_link" file="head_link.STL"/>
     <mesh name="L_shoulder_pitch_link" file="L_shoulder_pitch_link.STL"/>

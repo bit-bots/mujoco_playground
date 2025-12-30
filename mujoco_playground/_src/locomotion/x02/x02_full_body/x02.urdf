@@ -24,7 +24,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../meshes/pelvis_link.STL" />
+        <mesh filename="meshes/pelvis_link.STL" />
       </geometry>
       <material name="">
         <color rgba="1 1 1 1" />
@@ -33,7 +33,7 @@
     <collision>
     <origin xyz="0 0 0" rpy="0 0 0" />
     <geometry>
-      <mesh filename="../meshes/pelvis_link.STL" />
+      <mesh filename="meshes/pelvis_link.STL" />
     </geometry>
     </collision>
   </link>
@@ -46,7 +46,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../meshes/L_hip_yaw_link.STL" />
+        <mesh filename="meshes/L_hip_yaw_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
@@ -55,7 +55,7 @@
     <collision>
     <origin xyz="0 0 0" rpy="0 0 0" />
     <geometry>
-      <mesh filename="../meshes/L_hip_yaw_link.STL" />
+      <mesh filename="meshes/L_hip_yaw_link.STL" />
     </geometry>
     </collision>
   </link>
@@ -222,7 +222,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../meshes/R_hip_yaw_link.STL" />
+        <mesh filename="meshes/R_hip_yaw_link.STL" />
       </geometry>
       <material name="">
         <color rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
@@ -231,7 +231,7 @@
     <collision>
     <origin xyz="0 0 0" rpy="0 0 0" />
     <geometry>
-      <mesh filename="../meshes/R_hip_yaw_link.STL" />
+      <mesh filename="meshes/R_hip_yaw_link.STL" />
     </geometry>
     </collision>
   </link>
