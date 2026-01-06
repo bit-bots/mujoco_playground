@@ -116,7 +116,8 @@ class KeyboardGamepad:
                 self.vx = max(-self.max_speed, min(self.vx, self.max_speed))
                 self.vy = max(-self.max_speed, min(self.vy, self.max_speed))
                 self.wz = max(-self.max_speed, min(self.wz, self.max_speed))
-            print(f"Velocity changed to ({self.vy:.2f}, {self.vx:.2f}, {self.wz:.2f})", end='\r')
+                print(f"Velocity changed to ({self.vy:.2f}, {self.vx:.2f}, {self.wz:.2f})", end='\r')
+
 
     def get_command(self):
         """

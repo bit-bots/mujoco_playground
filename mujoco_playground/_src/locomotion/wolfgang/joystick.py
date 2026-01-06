@@ -255,6 +255,26 @@ class Joystick(wolfgang_base.WolfgangEnv):
     )
     push_interval_steps = jp.round(push_interval / self.dt).astype(jp.int32)
 
+    # Sample imu delay.
+    rng, imu_rng = jax.random.split(rng)
+
+    max_imu_delay = 3
+    max_action_delay = 3
+
+    imu_delay = jax.random.randint(
+        imu_rng,
+        minval=0,
+        maxval=max_imu_delay,
+        shape=(),
+    )
+
+    action_delay = jax.random.randint(
+        imu_rng,
+        minval=0,
+        maxval=max_action_delay,
+        shape=(),
+    )
+
     info = {
         "rng": rng,
         "step": 0,
@@ -272,6 +292,13 @@ class Joystick(wolfgang_base.WolfgangEnv):
         "push": jp.array([0.0, 0.0]),
         "push_step": 0,
         "push_interval_steps": push_interval_steps,
+        # Sensor buffers.
+        "imu_delay": imu_delay,
+        "imu_buffer": jp.broadcast_to(jp.eye(3), (max_imu_delay, 3, 3)),
+        "gyro_buffer": jp.zeros((max_imu_delay, 3)),
+        # Action buffer
+        "action_delay": action_delay,
+        "action_buffer": jp.zeros((max_action_delay, self.mjx_model.nu)),
     }
 
     metrics = {}
@@ -288,6 +315,14 @@ class Joystick(wolfgang_base.WolfgangEnv):
     return mjx_env.State(data, obs, reward, done, metrics, info)
 
   def step(self, state: mjx_env.State, action: jax.Array) -> mjx_env.State:
+    # Delay action
+    state.info["action_buffer"] = jp.concatenate(
+        [state.info["action_buffer"][1:], action[None, ...]],
+        axis=0
+    )
+    delayed_action = state.info["action_buffer"][state.info["action_delay"]]
+
+
     state.info["rng"], push1_rng, push2_rng = jax.random.split(
         state.info["rng"], 3
     )
@@ -308,7 +343,7 @@ class Joystick(wolfgang_base.WolfgangEnv):
     data = state.data.replace(qvel=qvel)
     state = state.replace(data=data)
 
-    motor_targets = self._default_pose + action * self._config.action_scale
+    motor_targets = self._default_pose + delayed_action * self._config.action_scale
     data = mjx_env.step(
         self.mjx_model, state.data, motor_targets, self.n_substeps
     )
@@ -324,6 +359,18 @@ class Joystick(wolfgang_base.WolfgangEnv):
     p_f = data.site_xpos[self._feet_site_id]
     p_fz = p_f[..., -1]
     state.info["swing_peak"] = jp.maximum(state.info["swing_peak"], p_fz)
+
+    # Update imu buffer.
+    # Left shift the buffer and append the new values.
+    state.info["imu_buffer"] = jp.concatenate(
+        [state.info["imu_buffer"][1:], data.site_xmat[self._site_id][None, ...]],
+        axis=0
+    )
+    state.info["gyro_buffer"] = jp.concatenate(
+        [state.info["gyro_buffer"][1:], self.get_gyro(data)[None]],
+        axis=0
+    )
+
 
     obs = self._get_obs(data, state.info, contact)
     done = self._get_termination(data)
@@ -374,7 +421,7 @@ class Joystick(wolfgang_base.WolfgangEnv):
   def _get_obs(
       self, data: mjx.Data, info: dict[str, Any], contact: jax.Array
   ) -> mjx_env.Observation:
-    gyro = self.get_gyro(data)
+    gyro = info['gyro_buffer'][info["imu_delay"]]
     info["rng"], noise_rng = jax.random.split(info["rng"])
     noisy_gyro = (
         gyro
@@ -383,7 +430,7 @@ class Joystick(wolfgang_base.WolfgangEnv):
         * self._config.noise_config.scales.gyro
     )
 
-    gravity = data.site_xmat[self._site_id].T @ jp.array([0, 0, -1])
+    gravity = info['imu_buffer'][info["imu_delay"]].T @ jp.array([0, 0, -1])
     info["rng"], noise_rng = jax.random.split(info["rng"])
     noisy_gravity = (
         gravity
@@ -415,13 +462,6 @@ class Joystick(wolfgang_base.WolfgangEnv):
     phase = jp.concatenate([cos, sin])
 
     linvel = self.get_local_linvel(data)
-    info["rng"], noise_rng = jax.random.split(info["rng"])
-    noisy_linvel = (
-        linvel
-        + (2 * jax.random.uniform(noise_rng, shape=linvel.shape) - 1)
-        * self._config.noise_config.level
-        * self._config.noise_config.scales.linvel
-    )
 
     state = jp.hstack([
         noisy_gyro,  # 3
