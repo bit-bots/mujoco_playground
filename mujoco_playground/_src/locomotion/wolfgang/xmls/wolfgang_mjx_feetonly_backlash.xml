@@ -15,15 +15,15 @@
       </default>
       <default class="mx106">
         <joint damping="1.7" armature="0.025" frictionloss="0.1" />
-        <position kp="21.0" ctrlrange="-3.141592 3.141592" forcerange="-8 8" />
+        <position kp="31.5" ctrlrange="-3.141592 3.141592" forcerange="-8 8" />
       </default>
       <default class="mx64">
         <joint damping="0.66" armature="0.012" frictionloss="0.09" />
-        <position kp="12.5" ctrlrange="-3.141592 3.141592" forcerange="-5 5" />
+        <position kp="18.8" ctrlrange="-3.141592 3.141592" forcerange="-5 5" />
       </default>
       <default class="xh-540">
         <joint damping="1.7" armature="0.025" frictionloss="0.1" />
-        <position kp="21.0" ctrlrange="-3.141592 3.141592" forcerange="-8 8" />
+        <position kp="31.5" ctrlrange="-3.141592 3.141592" forcerange="-8 8" />
       </default>
       <default class="backlash_joint">
         <joint damping="0.0" armature="0.0" frictionloss="0.0" range="-0.05 0.05" />

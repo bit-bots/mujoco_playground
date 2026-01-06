@@ -99,6 +99,24 @@ def domain_randomize(model: mjx.Model, rng: jax.Array):
         + jax.random.uniform(key, shape=(12,), minval=-0.05, maxval=0.05)
     )
 
+    # randomize backlash joint ranges: +U(-0.05, 0.05).
+    rng, key = jax.random.split(rng)
+    backlash_lower_limit = jax.random.uniform(
+        key, shape=(12,), minval=-0.01, maxval=0.0
+    )
+    rng, key = jax.random.split(rng)
+    backlash_upper_limit = jax.random.uniform(
+        key, shape=(12,), minval=0.0, maxval=0.01
+    )
+    # jnt_range is a (njnt, 2) array where each row is [min, max]
+    # the 0th joint is the free joint, no limits required
+    # the 1st and every other following joint are normal joints actuated by motors, no need to set limits
+    # the 2nd and every other following joint are backlash joints, so we set limits
+    # Stack limits to shape (12, 2) where each row is [min, max]
+    backlash_ranges = jax.numpy.stack([backlash_lower_limit, backlash_upper_limit], axis=1)
+    jnt_range = model.jnt_range.at[2::2].set(backlash_ranges)
+
+
     return (
         geom_friction,
         dof_frictionloss,
@@ -109,6 +127,7 @@ def domain_randomize(model: mjx.Model, rng: jax.Array):
         body_mass,
         body_com,
         qpos0,
+        jnt_range,
     )
 
   (
@@ -121,6 +140,7 @@ def domain_randomize(model: mjx.Model, rng: jax.Array):
       body_mass,
       body_com,
       qpos0,
+      jnt_range,
   ) = rand_dynamics(rng)
 
   in_axes = jax.tree_util.tree_map(lambda x: None, model)
@@ -134,6 +154,7 @@ def domain_randomize(model: mjx.Model, rng: jax.Array):
       "body_mass": 0,
       "body_ipos": 0,
       "qpos0": 0,
+      "jnt_range": 0,
   })
 
   model = model.tree_replace({
@@ -146,6 +167,7 @@ def domain_randomize(model: mjx.Model, rng: jax.Array):
       "body_mass": body_mass,
       "body_ipos": body_com,
       "qpos0": qpos0,
+      "jnt_range": jnt_range,
   })
 
   return model, in_axes
