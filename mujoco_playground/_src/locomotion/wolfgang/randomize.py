@@ -154,7 +154,7 @@ def domain_randomize(model: mjx.Model, rng: jax.Array):
       "body_mass": 0,
       "body_ipos": 0,
       "qpos0": 0,
-      #"jnt_range": 0,
+      "jnt_range": 0,
   })
 
   model = model.tree_replace({
@@ -167,7 +167,7 @@ def domain_randomize(model: mjx.Model, rng: jax.Array):
       "body_mass": body_mass,
       "body_ipos": body_com,
       "qpos0": qpos0,
-      #"jnt_range": jnt_range,
+      "jnt_range": jnt_range,
   })
 
   return model, in_axes
