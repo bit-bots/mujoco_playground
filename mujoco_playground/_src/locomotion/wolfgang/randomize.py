@@ -102,11 +102,11 @@ def domain_randomize(model: mjx.Model, rng: jax.Array):
     # randomize backlash joint ranges: +U(-0.05, 0.05).
     rng, key = jax.random.split(rng)
     backlash_lower_limit = jax.random.uniform(
-        key, shape=(12,), minval=-0.00, maxval=0.0
+        key, shape=(12,), minval=-0.035, maxval=0.0
     )
     rng, key = jax.random.split(rng)
     backlash_upper_limit = jax.random.uniform(
-        key, shape=(12,), minval=0.0, maxval=0.00
+        key, shape=(12,), minval=0.0, maxval=0.035
     )
     # jnt_range is a (njnt, 2) array where each row is [min, max]
     # the 0th joint is the free joint, no limits required
@@ -154,7 +154,7 @@ def domain_randomize(model: mjx.Model, rng: jax.Array):
       "body_mass": 0,
       "body_ipos": 0,
       "qpos0": 0,
-      "jnt_range": 0,
+      #"jnt_range": 0,
   })
 
   model = model.tree_replace({
@@ -167,7 +167,7 @@ def domain_randomize(model: mjx.Model, rng: jax.Array):
       "body_mass": body_mass,
       "body_ipos": body_com,
       "qpos0": qpos0,
-      "jnt_range": jnt_range,
+      #"jnt_range": jnt_range,
   })
 
   return model, in_axes
