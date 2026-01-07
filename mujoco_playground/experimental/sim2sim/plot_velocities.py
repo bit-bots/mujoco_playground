@@ -15,16 +15,39 @@ _BACKLASH = flags.DEFINE_float(
 
 def main(_):
     commands = [
-        (0.5, 0.0, 0.0),  # forward
-        (0.0, 0.5, 0.0),  # left
-        (0.0, -0.5, 0.0),  # right
-        (0.0, 0.0, 0.5),  # turn left
-        (0.0, 0.0, -0.5),  # turn right
+      (0.0, 0.0, 0.0),  # stand still
+      (0.05, 0.0, 0.0),  # forward
+      (0.1, 0.0, 0.0),  # forward
+      (0.15, 0.0, 0.0),  # forward
+      (0.2, 0.0, 0.0),  # forward
+      (0.25, 0.0, 0.0),  # forward
+      (0.3, 0.0, 0.0),  # forward
+      (0.0, 0.05, 0.0),  # left
+      (0.0, 0.1, 0.0),  # left
+      (0.0, 0.15, 0.0),  # left
+      (0.0, 0.2, 0.0),  # left
+      (0.0, 0.25, 0.0),  # left
+      (0.0, 0.3, 0.0),  # left
+      (0.0, -0.05, 0.0),  # right
+      (0.0, -0.1, 0.0),  # right
+      (0.0, -0.15, 0.0),  # right
+      (0.0, -0.2, 0.0),  # right
+      (0.0, -0.25, 0.0),  # right
+      (0.0, -0.3, 0.0),  # right
+      (0.0, 0.0, 0.25),  # turn left
+      (0.0, 0.0, 0.5),  # turn left
+      (0.0, 0.0, 0.75),  # turn left
+      (0.0, 0.0, 1.0),  # turn left
+      (0.0, 0.0, -0.25),  # turn right
+      (0.0, 0.0, -0.5),  # turn right
+      (0.0, 0.0, -0.75),  # turn right
+      (0.0, 0.0, -1.0),  # turn right
     ]
 
     for command in commands:
         cmd_str = "_".join([f"{c:.2f}" for c in command])
-        with open(_HERE / "logs" / f"{_ONNX_MODEL.value}_bl{_BACKLASH.value}_{cmd_str}_velocities.csv", "r") as f:
+        velocity_log_path = _HERE / "logs" / f"{_ONNX_MODEL.value}_bl{_BACKLASH.value}_{cmd_str}_velocities"
+        with open(velocity_log_path.with_suffix(".csv"), "r") as f:
             reader = csv.reader(f)
             velocities = np.array([[float(value) for value in row] for row in reader])
         plt.figure()
@@ -53,7 +76,7 @@ def main(_):
         plt.plot(command[2] * np.ones_like(velocities[:, 5]), 'b--', label="Target Ang Vel Z")
         plt.legend()
         plt.grid()
-        plt.savefig(_HERE / "logs" / f"{_ONNX_MODEL.value}_{cmd_str}_velocities.png")
+        plt.savefig(velocity_log_path.with_suffix(".png"))
         plt.close()
 
 if __name__ == "__main__":
