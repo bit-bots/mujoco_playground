@@ -57,7 +57,9 @@ class WolfgangEnv(mjx_env.MjxEnv):
     self._mj_model.vis.global_.offheight = 2160
 
     # Set backlash joint ranges from config
-    backlash_value = getattr(self._config, "backlash", 0.05)
+    if not hasattr(self._config, "backlash"):
+      print("Backlash value not set in config, using default of 0.035")
+    backlash_value = getattr(self._config, "backlash", 0.035)
     for i in range(self._mj_model.njnt):
       joint_name = mujoco.mj_id2name(self._mj_model, mujoco.mjtObj.mjOBJ_JOINT, i)
       if joint_name and joint_name.endswith("_backlash"):

@@ -96,7 +96,7 @@ def domain_randomize(model: mjx.Model, rng: jax.Array):
     qpos0 = model.qpos0
     qpos0 = qpos0.at[7::2].set(
         qpos0[7::2]
-        + jax.random.uniform(key, shape=(12,), minval=-0.05, maxval=0.05)
+        + jax.random.uniform(key, shape=(12,), minval=-0.025, maxval=0.025)
     )
 
     # randomize backlash joint ranges: +U(-0.05, 0.05).
