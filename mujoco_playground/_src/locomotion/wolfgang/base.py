@@ -57,12 +57,12 @@ class WolfgangEnv(mjx_env.MjxEnv):
     self._mj_model.vis.global_.offheight = 2160
 
     # Set backlash joint ranges from config
-    backlash_value = getattr(self._config, "backlash", 0.05)
-    for i in range(self._mj_model.njnt):
-      joint_name = mujoco.mj_id2name(self._mj_model, mujoco.mjtObj.mjOBJ_JOINT, i)
-      if joint_name and joint_name.endswith("_backlash"):
-        joint_id = self._mj_model.joint(joint_name).id
-        self._mj_model.jnt_range[joint_id] = [-backlash_value, backlash_value]
+    #backlash_value = getattr(self._config, "backlash", 0.05)
+    #for i in range(self._mj_model.njnt):
+    #  joint_name = mujoco.mj_id2name(self._mj_model, mujoco.mjtObj.mjOBJ_JOINT, i)
+    #  if joint_name and joint_name.endswith("_backlash"):
+    #    joint_id = self._mj_model.joint(joint_name).id
+    #    self._mj_model.jnt_range[joint_id] = [-backlash_value, backlash_value]
 
     self._mjx_model = mjx.put_model(self._mj_model, impl=self._config.impl)
     self._xml_path = xml_path

@@ -586,7 +586,7 @@ def main(argv):
         camera="track",
         modify_scene_fns=mod_fns,
     )
-    media.write_video(f"rollout{i}.mp4", frames, fps=fps)
+    media.write_video(_RUN_NAME.value + f"_rollout{i}.mp4", frames, fps=fps)
     print(f"Rollout video saved as 'rollout{i}.mp4'.")
 
 

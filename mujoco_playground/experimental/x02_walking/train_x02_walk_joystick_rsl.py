@@ -217,7 +217,7 @@ def save_onnx_from_rsl_rl(ckpt_path, runner : OnPolicyRunner, raw_env, run_name,
             str(onnx_path),
             input_names=["obs"],
             output_names=["continuous_actions"],
-            opset_version=11,
+            opset_version=13,
             do_constant_folding=True,
             dynamic_axes={
                 "obs": {0: "batch_size"},
@@ -332,6 +332,10 @@ def main(argv,
     
     train_cfg_dict = train_cfg.to_dict()
     runner = OnPolicyRunner(brax_env, train_cfg_dict, logdir, device=device)
+
+    if train_cfg.resume_path:
+        print(f"Loading model from checkpoint: {train_cfg.resume_path}")
+        runner.load(train_cfg.resume_path)
     
     # Wrap the runner's save method to also export ONNX for intermediate checkpoints
     original_save = runner.save

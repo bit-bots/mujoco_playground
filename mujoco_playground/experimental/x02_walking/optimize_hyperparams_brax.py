@@ -95,7 +95,7 @@ def objective(trial : optuna.Trial, device: str="cuda:0", env_name: str="Berkele
             seed=base_config.seed,
             render_video=False,
             run_eval=True,
-            export_onnx=False,
+            export_onnx=True,
             config_is_string=False,
         )
     except Exception as e:
