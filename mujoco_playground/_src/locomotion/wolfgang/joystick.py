@@ -37,7 +37,7 @@ def default_config() -> config_dict.ConfigDict:
       action_repeat=1,
       action_scale=0.5,
       history_len=1,
-      backlash=0.002,
+      backlash=0.035,
       soft_joint_pos_limit_factor=0.95,
       noise_config=config_dict.create(
           level=1.0,  # Set to 0.0 to disable noise.
