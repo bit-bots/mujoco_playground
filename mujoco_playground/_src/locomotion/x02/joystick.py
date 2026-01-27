@@ -54,7 +54,7 @@ def default_config() -> config_dict.ConfigDict:
       reward_config=config_dict.create(
           scales=config_dict.create(
               # Tracking related rewards.
-              tracking_lin_vel=1.0,
+              tracking_lin_vel=3.0,
               tracking_ang_vel=0.5,
               # Base related rewards.
               lin_vel_z=0.0,
@@ -64,13 +64,13 @@ def default_config() -> config_dict.ConfigDict:
               # Energy related rewards.
               torques=-2.5e-4,
               action_rate=-0.01,
-              energy=0.0,
+              energy=-0.0025, #0.002 ist stabil aber hat reduntate bewegungen
               # Feet related rewards.
               feet_clearance=0.0,
-              feet_air_time=2.0,
+              feet_air_time=3.0, #4.0 ist Stable aber hat reduntate bewegungen
               feet_slip=-0.25,
               feet_height=0.0,
-              feet_phase=1.0,
+              feet_phase=2.0,
               flat_foot=0.25,
               horizontal_foot_clearance=0.25,
               foot_in_contact_reward=1.0,
@@ -81,14 +81,14 @@ def default_config() -> config_dict.ConfigDict:
               termination=-1.0,
               # Pose related rewards.
               joint_deviation_knee=-0.1,
-              joint_deviation_hip=-0.25,
+              joint_deviation_hip=-0.3,
               dof_pos_limits=-1.0,
               pose=-1.0,
           ),
           tracking_sigma=0.5,
-          max_foot_height=0.1,
+          max_foot_height=0.2,
           base_height_target=0.7, # does not do anything without base height reward scalar
-          minimal_horizontal_foot_clearance=0.1, # meters
+          minimal_horizontal_foot_clearance=0.4, # meters
       ),
       push_config=config_dict.create(
           enable=True,
