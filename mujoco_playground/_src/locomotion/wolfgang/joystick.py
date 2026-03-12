@@ -72,6 +72,7 @@ def default_config() -> config_dict.ConfigDict:
               feet_slip=-0.25,
               feet_height=0.0,
               feet_phase=2.0,
+              flat_foot=0.15,
               # Other rewards.
               stand_still=0.0,
               alive=0.0,
@@ -544,6 +545,8 @@ class Joystick(wolfgang_base.WolfgangEnv):
             self._config.reward_config.max_foot_height,
             info["command"],
         ),
+        "flat_foot": self._reward_flat_foot(data),
+
         # Other rewards.
         "alive": self._reward_alive(),
         "termination": self._cost_termination(done),
@@ -745,3 +748,11 @@ class Joystick(wolfgang_base.WolfgangEnv):
         jp.zeros(3),
         jp.hstack([lin_vel_x, lin_vel_y, ang_vel_yaw]),
     )
+  def _reward_flat_foot(
+      self,
+      data: mjx.Data
+  ) -> jax.Array:
+    foot_xmat = data.site_xmat[self._feet_site_id]
+    foot_zaxis = foot_xmat[:, 2, :]
+    zaxis_error = jp.sum(jp.square(foot_zaxis - jp.array([0, 0, 1])), axis=-1)
+    return jp.sum(jp.exp(-zaxis_error / 0.1))
