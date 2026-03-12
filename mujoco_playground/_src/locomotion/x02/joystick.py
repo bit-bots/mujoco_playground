@@ -422,12 +422,13 @@ class Joystick(x02_base.X02Base):
 
     joint_vel = data.qvel[6:]
     info["rng"], noise_rng = jax.random.split(info["rng"])
-    noisy_joint_vel = (
-        joint_vel
-        + (2 * jax.random.uniform(noise_rng, shape=joint_vel.shape) - 1)
-        * self._config.noise_config.level
-        * self._config.noise_config.scales.joint_vel
-    )
+    noisy_joint_vel = jp.zeros_like(joint_vel)
+    #(
+    #    joint_vel
+    #    + (2 * jax.random.uniform(noise_rng, shape=joint_vel.shape) - 1)
+    #    * self._config.noise_config.level
+    #    * self._config.noise_config.scales.joint_vel
+    #)
 
     cos = jp.cos(info["phase"])
     sin = jp.sin(info["phase"])
