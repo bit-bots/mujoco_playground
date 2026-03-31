@@ -5,8 +5,11 @@ from absl import flags
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 
-_NUM_EXPERIMENTS_PER_SEED = flags.DEFINE_integer(
-    "num_experiments_per_seed", 3, "Number of experiments per seed")
+_NUM_EXPERIMENTS_PER_BACKLASH = flags.DEFINE_integer(
+    "num_experiments_per_backlash", 3, "Number of experiments per backlash value")
+
+_INITIAL_SEED = flags.DEFINE_integer(
+    "initial_seed", 0, "Starting seed (seeds will be initial_seed .. initial_seed + num_experiments_per_backlash - 1)")
 
 _MAX_TIME_X = flags.DEFINE_float(
     "max_timex", 10.0, "Maximum simulation time per test (in seconds)")
@@ -40,7 +43,7 @@ def main(argv):
     jobs = []
     for model in ["wolfgang_grc_rand_bl.onnx", "wolfgang_grc_zero_bl.onnx"]:
         for backlash in [0.0, 0.01, 0.025, 0.05, 0.075, 0.1]:
-            for seed in range(_NUM_EXPERIMENTS_PER_SEED.value):
+            for seed in range(_INITIAL_SEED.value, _INITIAL_SEED.value + _NUM_EXPERIMENTS_PER_BACKLASH.value):
                 jobs.append((model, backlash, seed, _MAX_TIME_X.value))
 
     with ProcessPoolExecutor(max_workers=_NUM_WORKERS.value) as executor:
