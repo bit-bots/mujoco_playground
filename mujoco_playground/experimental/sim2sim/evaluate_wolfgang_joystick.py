@@ -29,7 +29,7 @@ _ONNX_MODEL = flags.DEFINE_string(
     "onnx_model", "wolfgang_policy_bl005.onnx", "Name of the ONNX model file"
 )
 _MAX_TIME = flags.DEFINE_float(
-    "max_time", 3.0, "Maximum simulation time per test (in seconds)"
+    "max_time", 30.0, "Maximum simulation time per test (in seconds)"
 )
 _VISUALIZE = flags.DEFINE_boolean(
     "visualize", False, "Whether to visualize the evaluation"
@@ -108,7 +108,7 @@ class OnnxController:
 
 
 def run_experiment(command, policy, model, data, mj_viewer):
-    logging.info("Test command: %s", command)
+    #logging.info("Test command: %s", command)
     policy.set_command(command)
     policy.reset()
     mujoco.mj_resetDataKeyframe(model, data, 0)
@@ -130,7 +130,7 @@ def run_experiment(command, policy, model, data, mj_viewer):
         # Check if fallen - same logic as in joystick.py
         gravity_vector = data.sensor("upvector").data
         if gravity_vector[2] < 0.0:
-            logging.info("Robot has fallen! Gravity z-component: %.3f", gravity_vector[2])
+            #logging.info("Robot has fallen! Gravity z-component: %.3f", gravity_vector[2])
             with open(fall_log_path, "a") as f:
                 f.write(f"{cmd_str},{sim_time:.3f}\n")
             fallen = True
@@ -158,7 +158,7 @@ def run_experiment(command, policy, model, data, mj_viewer):
     if not fallen:
         with open(fall_log_path, "a") as f:
             f.write(f"{cmd_str},{-1.0:.3f}\n")
-    logging.info("Fini testing command: %s", command)
+    #logging.info("Fini testing command: %s", command)
 
 
 def main(argv):
@@ -202,90 +202,36 @@ def main(argv):
     mujoco.set_mjcb_control(policy.get_control)
 
     commands = [
-      (0.0, 0.0, 0.0),  # stand still
-      (0.1, 0.0, 0.0),  # forward
-      (0.2, 0.0, 0.0),  # forward
-      (0.3, 0.0, 0.0),  # forward
-      (0.4, 0.0, 0.0),  # forward
-      (0.5, 0.0, 0.0),  # forward
-      (0.6, 0.0, 0.0),  # forward
-      (0.7, 0.0, 0.0),  # forward
-      (0.9, 0.0, 0.0),  # forward
-      (1.0, 0.0, 0.0),  # forward
-      (1.1, 0.0, 0.0),  # forward
-      (1.2, 0.0, 0.0),  # forward
-      (1.3, 0.0, 0.0),  # forward
-      (1.4, 0.0, 0.0),  # forward
-      (1.5, 0.0, 0.0),  # forward
-      (1.6, 0.0, 0.0),  # forward
-      (1.7, 0.0, 0.0),  # forward
-      (1.8, 0.0, 0.0),  # forward
-      (1.9, 0.0, 0.0),  # forward
-      (2.0, 0.0, 0.0),  # forward
-      (2.1, 0.0, 0.0),  # forward
-      (2.2, 0.0, 0.0),  # forward
-      (2.3, 0.0, 0.0),  # forward
-      (2.4, 0.0, 0.0),  # forward
-      (2.5, 0.0, 0.0),  # forward
-      (2.6, 0.0, 0.0),  # forward
-      (2.7, 0.0, 0.0),  # forward
-      (2.8, 0.0, 0.0),  # forward
-      (2.9, 0.0, 0.0),  # forward
-      (3.0, 0.0, 0.0),  # forward
-      (-0.1, 0.0, 0.0),  # backward
-      (-0.2, 0.0, 0.0),  # backward
-      (-0.3, 0.0, 0.0),  # backward
-      (-0.4, 0.0, 0.0),  # backward
-      (-0.5, 0.0, 0.0),  # backward
-      (-0.6, 0.0, 0.0),  # backward
-      (-0.7, 0.0, 0.0),  # backward
-      (-0.9, 0.0, 0.0),  # backward
-      (-1.0, 0.0, 0.0),  # backward
-      (-1.1, 0.0, 0.0),  # backward
-      (-1.2, 0.0, 0.0),  # backward
-      (-1.3, 0.0, 0.0),  # backward
-      (-1.4, 0.0, 0.0),  # backward
-      (-1.5, 0.0, 0.0),  # backward
-      (0.0, 0.1, 0.0),  # left
-      (0.0, 0.2, 0.0),  # left
-      (0.0, 0.3, 0.0),  # left
-      (0.0, 0.4, 0.0),  # left
-      (0.0, 0.5, 0.0),  # left
-      (0.0, 0.6, 0.0),  # left
-      (0.0, 0.7, 0.0),  # left
-      (0.0, 0.8, 0.0),  # left
-      (0.0, 0.9, 0.0),  # left
-      (0.0, 1.0, 0.0),  # left
-      (0.0, -0.1, 0.0),  # right
-      (0.0, -0.2, 0.0),  # right
-      (0.0, -0.3, 0.0),  # right
-      (0.0, -0.4, 0.0),  # right
-      (0.0, -0.5, 0.0),  # right
-      (0.0, -0.6, 0.0),  # right
-      (0.0, -0.7, 0.0),  # right
-      (0.0, -0.8, 0.0),  # right
-      (0.0, -0.9, 0.0),  # right
-      (0.0, -1.0, 0.0),  # right
-      (0.0, 0.0, 0.25),  # turn left
-      (0.0, 0.0, 0.5),  # turn left
-      (0.0, 0.0, 0.75),  # turn left
-      (0.0, 0.0, 1.0),  # turn left
-      (0.0, 0.0, 1.25),  # turn left
-      (0.0, 0.0, 1.5),  # turn left
-      (0.0, 0.0, 1.75),  # turn left
-      (0.0, 0.0, 2.0),  # turn left
-      (0.0, 0.0, 2.25),  # turn left
-      (0.0, 0.0, 2.5),  # turn left
-      (0.0, 0.0, -0.25),  # turn right
-      (0.0, 0.0, -0.5),  # turn right
-      (0.0, 0.0, -0.75),  # turn right
-      (0.0, 0.0, -1.0),  # turn right
-      (0.0, 0.0, -1.25),  # turn right
-      (0.0, 0.0, -1.5),  # turn right
-      (0.0, 0.0, -1.75),  # turn right
-      (0.0, 0.0, -2.0),  # turn right
-      (0.0, 0.0, -2.25),  # turn right
-      (0.0, 0.0, -2.5),  # turn right
+        (0.0, 0.0, 0.0),  # stand still
+        (0.2, 0.0, 0.0),  # forward
+        (0.4, 0.0, 0.0),  # forward
+        (0.6, 0.0, 0.0),  # forward
+        (1.0, 0.0, 0.0),  # forward
+        (-0.2, 0.0, 0.0),  # backward
+        (-0.4, 0.0, 0.0),  # backward
+        (-0.6, 0.0, 0.0),  # backward
+        (-0.8, 0.0, 0.0),  # backward
+        (-1.0, 0.0, 0.0),  # backward
+        (0.0, 0.2, 0.0),  # left
+        (0.0, 0.4, 0.0),  # left
+        (0.0, 0.6, 0.0),  # left
+        (0.0, 0.8, 0.0),  # left
+        (0.0, -0.2, 0.0),  # right
+        (0.0, -0.4, 0.0),  # right
+        (0.0, -0.6, 0.0),  # right
+        (0.0, -0.8, 0.0),  # right
+        (0.0, 0.0, 0.5),  # turn left
+        (0.0, 0.0, 1.0),  # turn left
+        (0.0, 0.0, 1.5),  # turn left
+        (0.0, 0.0, 2.0),  # turn left
+        (0.0, 0.0, 2.5),  # turn left
+        (0.0, 0.0, 3.0),  # turn left
+        (0.0, 0.0, -0.5),  # turn right
+        (0.0, 0.0, -1.0),  # turn right
+        (0.0, 0.0, -1.5),  # turn right
+        (0.0, 0.0, -2.0),  # turn right
+        (0.0, 0.0, -2.5),  # turn right
+        (0.0, 0.0, -3.0),  # turn right
     ]
     if _VISUALIZE.value:
         with viewer.launch_passive(model, data) as mj_viewer:
