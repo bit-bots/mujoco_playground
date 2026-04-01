@@ -19,6 +19,10 @@ _NUM_WORKERS = flags.DEFINE_integer(
 
 _EVAL_SCRIPT = "mujoco_playground/experimental/sim2sim/evaluate_wolfgang_joystick.py"
 
+_DISABLE_VELOCITY_LOG = flags.DEFINE_boolean(
+    "disable_velocity_log", False, "Whether to disable the velocity log"
+)
+
 
 def _run_single(job):
     model, backlash, seed, max_time = job
@@ -30,6 +34,7 @@ def _run_single(job):
             "--max_time", str(max_time),
             "--backlash", str(backlash),
             "--random_backlash", "True",
+            "--disable_velocity_log", str(_DISABLE_VELOCITY_LOG.value),
         ],
         capture_output=True,
         text=True,

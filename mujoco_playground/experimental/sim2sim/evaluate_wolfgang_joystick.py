@@ -37,6 +37,9 @@ _VISUALIZE = flags.DEFINE_boolean(
 _REALTIME = flags.DEFINE_boolean(
     "realtime", False, "Whether to run the simulation in real-time"
 )
+_DISABLE_VELOCITY_LOG = flags.DEFINE_boolean(
+    "disable_velocity_log", False, "Whether to disable the velocity log"
+)
 
 class OnnxController:
     """ONNX controller for the wolfgang humanoid."""
@@ -123,38 +126,39 @@ def run_experiment(command, policy, model, data, mj_viewer):
     with open(velocity_log_path, "w") as f:
         f.write("")
 
-    while sim_time < _MAX_TIME.value:
-        mujoco.mj_step(model, data)
-        sim_time += 0.002
+        while sim_time < _MAX_TIME.value:
+            mujoco.mj_step(model, data)
+            sim_time += 0.002
 
-        # Check if fallen - same logic as in joystick.py
-        gravity_vector = data.sensor("upvector").data
-        if gravity_vector[2] < 0.0:
-            #logging.info("Robot has fallen! Gravity z-component: %.3f", gravity_vector[2])
-            with open(fall_log_path, "a") as f:
-                f.write(f"{cmd_str},{sim_time:.3f}\n")
-            fallen = True
-            break
+            # Check if fallen - same logic as in joystick.py
+            gravity_vector = data.sensor("upvector").data
+            if gravity_vector[2] < 0.0:
+                #logging.info("Robot has fallen! Gravity z-component: %.3f", gravity_vector[2])
+                with open(fall_log_path, "a") as f:
+                    f.write(f"{cmd_str},{sim_time:.3f}\n")
+                fallen = True
+                break
 
-        # Check for NaN values in position or velocity
-        if np.isnan(data.qpos).any() or np.isnan(data.qvel).any():
-            logging.info("NaN detected in simulation state!")
-            break
+            # Check for NaN values in position or velocity
+            if np.isnan(data.qpos).any() or np.isnan(data.qvel).any():
+                logging.info("NaN detected in simulation state!")
+                break
 
-        # measure real velocity:
-        linvel = data.sensor("local_linvel").data
-        angular_vel = data.sensor("gyro").data
+            # measure real velocity:
+            linvel = data.sensor("local_linvel").data
+            angular_vel = data.sensor("gyro").data
 
-        with open(velocity_log_path, "a") as f:
-            f.write(",".join(map(str, linvel)) + "," + ",".join(map(str, angular_vel)) + "\n")
+            if not _DISABLE_VELOCITY_LOG.value:
+                with open(velocity_log_path, "a") as f:
+                    f.write(",".join(map(str, linvel)) + "," + ",".join(map(str, angular_vel)) + "\n")
 
-        if mj_viewer and (sim_time - last_sync_time) > (1.0 / 60.0):
-            mj_viewer.sync()
-            last_sync_time = sim_time
-            if _REALTIME.value:
-                real_elapsed = time.time() - real_start_time
-                if sim_time > real_elapsed:
-                    time.sleep(sim_time - real_elapsed)
+            if mj_viewer and (sim_time - last_sync_time) > (1.0 / 60.0):
+                mj_viewer.sync()
+                last_sync_time = sim_time
+                if _REALTIME.value:
+                    real_elapsed = time.time() - real_start_time
+                    if sim_time > real_elapsed:
+                        time.sleep(sim_time - real_elapsed)
     if not fallen:
         with open(fall_log_path, "a") as f:
             f.write(f"{cmd_str},{-1.0:.3f}\n")
@@ -205,33 +209,18 @@ def main(argv):
         (0.0, 0.0, 0.0),  # stand still
         (0.2, 0.0, 0.0),  # forward
         (0.4, 0.0, 0.0),  # forward
-        (0.6, 0.0, 0.0),  # forward
-        (1.0, 0.0, 0.0),  # forward
         (-0.2, 0.0, 0.0),  # backward
         (-0.4, 0.0, 0.0),  # backward
-        (-0.6, 0.0, 0.0),  # backward
-        (-0.8, 0.0, 0.0),  # backward
-        (-1.0, 0.0, 0.0),  # backward
         (0.0, 0.2, 0.0),  # left
         (0.0, 0.4, 0.0),  # left
-        (0.0, 0.6, 0.0),  # left
-        (0.0, 0.8, 0.0),  # left
         (0.0, -0.2, 0.0),  # right
         (0.0, -0.4, 0.0),  # right
-        (0.0, -0.6, 0.0),  # right
-        (0.0, -0.8, 0.0),  # right
         (0.0, 0.0, 0.5),  # turn left
         (0.0, 0.0, 1.0),  # turn left
         (0.0, 0.0, 1.5),  # turn left
-        (0.0, 0.0, 2.0),  # turn left
-        (0.0, 0.0, 2.5),  # turn left
-        (0.0, 0.0, 3.0),  # turn left
         (0.0, 0.0, -0.5),  # turn right
         (0.0, 0.0, -1.0),  # turn right
         (0.0, 0.0, -1.5),  # turn right
-        (0.0, 0.0, -2.0),  # turn right
-        (0.0, 0.0, -2.5),  # turn right
-        (0.0, 0.0, -3.0),  # turn right
     ]
     if _VISUALIZE.value:
         with viewer.launch_passive(model, data) as mj_viewer:
