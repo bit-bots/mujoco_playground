@@ -119,13 +119,11 @@ def run_experiment(command, policy, model, data, mj_viewer):
     last_sync_time = -1.0
     real_start_time = time.time()
     cmd_str = "_".join([f"{c:.2f}" for c in command])
-    velocity_log_path = _HERE / "logs" / f"{_RANDOM_SEED.value:03d}_{_ONNX_MODEL.value}_bl{_BACKLASH.value}_{cmd_str}_velocities.csv"
+    velocity_log_path = _HERE / ("dummy.csv" if _DISABLE_VELOCITY_LOG.value else f"logs/{_RANDOM_SEED.value:03d}_{_ONNX_MODEL.value}_bl{_BACKLASH.value}_{cmd_str}_velocities.csv")
     fall_log_path = _HERE / "logs" / f"{_RANDOM_SEED.value:03d}_{_ONNX_MODEL.value}_bl{_BACKLASH.value}_fall_times.csv"
     fallen = False
     # Clear previous log
     with open(velocity_log_path, "w") as f:
-        f.write("")
-
         while sim_time < _MAX_TIME.value:
             mujoco.mj_step(model, data)
             sim_time += 0.002
@@ -134,8 +132,7 @@ def run_experiment(command, policy, model, data, mj_viewer):
             gravity_vector = data.sensor("upvector").data
             if gravity_vector[2] < 0.0:
                 #logging.info("Robot has fallen! Gravity z-component: %.3f", gravity_vector[2])
-                with open(fall_log_path, "a") as f:
-                    f.write(f"{cmd_str},{sim_time:.3f}\n")
+                f.write(f"{cmd_str},{sim_time:.3f}\n")
                 fallen = True
                 break
 
@@ -147,10 +144,9 @@ def run_experiment(command, policy, model, data, mj_viewer):
             # measure real velocity:
             linvel = data.sensor("local_linvel").data
             angular_vel = data.sensor("gyro").data
-
+            print(_DISABLE_VELOCITY_LOG.value, "velolog")
             if not _DISABLE_VELOCITY_LOG.value:
-                with open(velocity_log_path, "a") as f:
-                    f.write(",".join(map(str, linvel)) + "," + ",".join(map(str, angular_vel)) + "\n")
+                f.write(",".join(map(str, linvel)) + "," + ",".join(map(str, angular_vel)) + "\n")
 
             if mj_viewer and (sim_time - last_sync_time) > (1.0 / 60.0):
                 mj_viewer.sync()
@@ -159,10 +155,8 @@ def run_experiment(command, policy, model, data, mj_viewer):
                     real_elapsed = time.time() - real_start_time
                     if sim_time > real_elapsed:
                         time.sleep(sim_time - real_elapsed)
-    if not fallen:
-        with open(fall_log_path, "a") as f:
+        if not fallen:
             f.write(f"{cmd_str},{-1.0:.3f}\n")
-    #logging.info("Fini testing command: %s", command)
 
 
 def main(argv):

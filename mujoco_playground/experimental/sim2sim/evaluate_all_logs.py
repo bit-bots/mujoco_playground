@@ -1,3 +1,4 @@
+import argparse
 import pickle
 import re
 import numpy as np
@@ -10,13 +11,23 @@ import copy
 
 from tqdm import tqdm
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--redo_cache", action="store_true", help="Recompute and overwrite the cached velocities.pkl")
+args = parser.parse_args()
+
 _HERE = epath.Path(__file__).parent
 MAX_TIME = 10.0
 
 fall_time_logs = glob(str(_HERE) + "/logs/*fall_times.csv")
 
-fall_times = {"zero": {"0.0": {}, "0.01": {}, "0.025": {}, "0.05": {}, "0.075": {}, "0.1": {}}, 
-              "rand": {"0.0": {}, "0.01": {}, "0.025": {}, "0.05": {}, "0.075": {}, "0.1": {}}}
+bl_values = ["0.0", "0.0125", "0.025", "0.0375", "0.05", "0.0625", "0.075", "0.0875", "0.1"]
+
+fall_times = {
+    "zero": {bl: {} for bl in bl_values},
+    "rand": {bl: {} for bl in bl_values},
+}
+models = ["wolfgang_grc_rand_bl.onnx", "wolfgang_grc_zero_bl.onnx"]
+
 
 # 007_wolfgang_grc_zero_bl.onnx_bl0.025_fall_times.csv
 fall_times_regex = r"(\d+)_wolfgang_grc_(zero|rand)_bl.onnx_bl([\d.]+)_fall_times.csv"
@@ -62,19 +73,24 @@ color_with_backlash = '#785ef0'
 
 model_cmap = {"rand": plt.cm.Blues, "zero": plt.cm.Reds}
 
-fig, ax = plt.subplots(2,3)
-fig.set_size_inches(30, 20)
+n_bl_values = len(bl_values)
+n_cols = 3
+n_rows = (n_bl_values + n_cols - 1) // n_cols
+fig, ax = plt.subplots(n_rows, n_cols)
+if n_rows == 1:
+    ax = ax[np.newaxis, :]
+fig.set_size_inches(10 * n_cols, 10 * n_rows)
 # reduce outer margins
 fig.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
 for model_name in ["rand", "zero"]:
     color = color_with_backlash if model_name == "rand" else color_without_backlash
-    for bl_idx, backlash in enumerate(["0.0", "0.01", "0.025", "0.05", "0.075", "0.1"]):
-        ax[bl_idx%2][bl_idx//2].set_title(f"Backlash {backlash}")
-        ax[bl_idx%2][bl_idx//2].set_xlabel("Velocity Command")
-        ax[bl_idx%2][bl_idx//2].set_ylabel("Number of Falls")
-        ax[bl_idx%2][bl_idx//2].set_ylim(0, 100)
+    for bl_idx, backlash in enumerate(bl_values):
+        ax[bl_idx // n_cols][bl_idx % n_cols].set_title(f"Backlash {backlash}")
+        ax[bl_idx // n_cols][bl_idx % n_cols].set_xlabel("Velocity Command")
+        ax[bl_idx // n_cols][bl_idx % n_cols].set_ylabel("Number of Falls")
+        ax[bl_idx // n_cols][bl_idx % n_cols].set_ylim(0, 500)
         # set x tick rotation:
-        ax[bl_idx%2][bl_idx//2].tick_params(axis='x', labelrotation=75)
+        ax[bl_idx // n_cols][bl_idx % n_cols].tick_params(axis='x', labelrotation=75)
         
         x_pos = list(range(len(fall_counts[model_name][backlash].keys())))
         if model_name == "rand":
@@ -82,7 +98,7 @@ for model_name in ["rand", "zero"]:
         else:
             x_pos = [x - 0.2 for x in x_pos]
         labels = ["(" + cmd.replace("_", ",") + ")" for cmd in fall_counts[model_name][backlash].keys()]
-        ax[bl_idx%2][bl_idx//2].bar(x_pos,
+        ax[bl_idx // n_cols][bl_idx % n_cols].bar(x_pos,
                                     list(fall_counts[model_name][backlash].values()),
                                     0.35,
                                     color=color,
@@ -90,7 +106,8 @@ for model_name in ["rand", "zero"]:
                                     tick_label=labels)
 
 plt.legend()
-plt.show()
+plt.savefig(_HERE / "fall_counts.pdf")
+plt.close(fig)
 
 # --- Velocity tracking separated by model, backlash, and run ---
 
@@ -102,9 +119,6 @@ FILENAME_RE = re.compile(
 )
 
 # data[model][backlash] -> {cmd_x, cmd_y, cmd_z, real_x, real_y, real_z}
-bl_values = ["0.0", "0.01", "0.025", "0.05", "0.075", "0.1"]
-models = ["wolfgang_grc_rand_bl.onnx", "wolfgang_grc_zero_bl.onnx"]
-
 data = {}
 for model in models:
     data[model] = {}
@@ -115,7 +129,7 @@ for model in models:
         }
 
 # check if pickle exists:
-if (_HERE / "velocities.pkl").exists():
+if not args.redo_cache and (_HERE / "velocities.pkl").exists():
     with open(_HERE / "velocities.pkl", "rb") as f:
         data = pickle.load(f)
 else:
@@ -200,18 +214,13 @@ for cmd_key, real_key, title in AXES:
             mean_reals = np.array(
                 [np.mean(real_masked[cmd_masked == c]) for c in unique_cmds]
             )
+            training = "with" if "rand" in model else "without"
             ax.plot(
                 unique_cmds, mean_reals, "o-",
-                color=color, label=f"{model} bl={bl_val}", markersize=4, alpha=0.8,
+                color=color, label=f"{training} backlash in training; backlash {bl_val}", markersize=4, alpha=0.8,
             )
 
-    lims = [
-        min(ax.get_xlim()[0], ax.get_ylim()[0]),
-        max(ax.get_xlim()[1], ax.get_ylim()[1]),
-    ]
-    ax.plot(lims, lims, "k--", alpha=0.3)
-    ax.set_xlim(lims)
-    ax.set_ylim(lims)
     ax.legend(fontsize="small", loc="upper left")
     plt.tight_layout()
-    plt.show()
+    plt.savefig(_HERE / f"{cmd_key}_vs_{real_key}.pdf")
+    plt.close(fig)

@@ -12,7 +12,7 @@ _INITIAL_SEED = flags.DEFINE_integer(
     "initial_seed", 0, "Starting seed (seeds will be initial_seed .. initial_seed + num_experiments_per_backlash - 1)")
 
 _MAX_TIME_X = flags.DEFINE_float(
-    "max_timex", 10.0, "Maximum simulation time per test (in seconds)")
+    "max_timex", 30.0, "Maximum simulation time per test (in seconds)")
 
 _NUM_WORKERS = flags.DEFINE_integer(
     "num_workers", 8, "Number of parallel processes for evaluation")
@@ -34,7 +34,7 @@ def _run_single(job):
             "--max_time", str(max_time),
             "--backlash", str(backlash),
             "--random_backlash", "True",
-            "--disable_velocity_log", str(_DISABLE_VELOCITY_LOG.value),
+            "--disable_velocity_log" if _DISABLE_VELOCITY_LOG.value else "",
         ],
         capture_output=True,
         text=True,
@@ -47,7 +47,7 @@ def _run_single(job):
 def main(argv):
     jobs = []
     for model in ["wolfgang_grc_rand_bl.onnx", "wolfgang_grc_zero_bl.onnx"]:
-        for backlash in [0.0, 0.01, 0.025, 0.05, 0.075, 0.1]:
+        for backlash in [0.0, 0.0125, 0.025, 0.0375, 0.05, 0.0625, 0.075, 0.0875, 0.1]:
             for seed in range(_INITIAL_SEED.value, _INITIAL_SEED.value + _NUM_EXPERIMENTS_PER_BACKLASH.value):
                 jobs.append((model, backlash, seed, _MAX_TIME_X.value))
 
