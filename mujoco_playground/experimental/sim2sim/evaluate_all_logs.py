@@ -11,6 +11,15 @@ import copy
 
 from tqdm import tqdm
 
+plt.rcParams.update({
+    "text.usetex": True,
+    "font.family": "serif",
+    "font.serif": ["Times"],
+    "pdf.fonttype": 42,
+    "ps.fonttype": 42,
+    "font.size": 20,
+})
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--redo_cache", action="store_true", help="Recompute and overwrite the cached velocities.pkl")
 args = parser.parse_args()
@@ -63,59 +72,76 @@ for model_name in fall_times.keys():
                     fallen_times += 1
             fall_counts[model_name][backlash][command] = fallen_times
 
-# y axis number of falls,
-# x axis velocity commands
-# one color per model, shades for backlash values
+CMD_ORDER = [
+    "0.00_0.00_0.00",
+    "0.20_0.00_0.00", "0.40_0.00_0.00",
+    "-0.20_0.00_0.00", "-0.40_0.00_0.00",
+    "0.00_0.20_0.00", "0.00_0.40_0.00",
+    "0.00_-0.20_0.00", "0.00_-0.40_0.00",
+    "0.00_0.00_0.50", "0.00_0.00_1.00", "0.00_0.00_1.50",
+    "0.00_0.00_-0.50", "0.00_0.00_-1.00", "0.00_0.00_-1.50",
+]
 
-color_without_backlash ='#fe6100'
+
+def _cmd_label(cmd_str):
+    x, y, z = [float(v) for v in cmd_str.split("_")]
+    if x == 0.0 and y == 0.0 and z == 0.0:
+        return r"$|v|=0$"
+    if x != 0.0:
+        return rf"$v_x={x:g}$"
+    if y != 0.0:
+        return rf"$v_y={y:g}$"
+    return rf"$v_{{\theta}}={z:g}$"
+
+
+color_without_backlash = '#fe6100'
 color_with_backlash = '#785ef0'
 
+plot_bl_values = [bl for bl in bl_values if float(bl) > 0.0375]
 
-model_cmap = {"rand": plt.cm.Blues, "zero": plt.cm.Reds}
+# 2 on top (centered over 3 cols), 3 on bottom
+fig = plt.figure(figsize=(15, 10))
+gs = fig.add_gridspec(2, 6, hspace=0.65, wspace=0.08,
+                      left=0.06, right=0.98, top=0.95, bottom=0.16)
+axes = [
+    fig.add_subplot(gs[0, 1:3]),
+    fig.add_subplot(gs[0, 3:5]),
+    fig.add_subplot(gs[1, 0:2]),
+    fig.add_subplot(gs[1, 2:4]),
+    fig.add_subplot(gs[1, 4:6]),
+]
 
-n_bl_values = len(bl_values)
-n_cols = 3
-n_rows = (n_bl_values + n_cols - 1) // n_cols
-fig, ax = plt.subplots(n_rows, n_cols)
-if n_rows == 1:
-    ax = ax[np.newaxis, :]
-fig.set_size_inches(10 * n_cols, 10 * n_rows)
-# reduce outer margins
-fig.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
 for model_name in ["rand", "zero"]:
     color = color_with_backlash if model_name == "rand" else color_without_backlash
-    for bl_idx, backlash in enumerate(bl_values):
-        ax[bl_idx // n_cols][bl_idx % n_cols].set_title(f"Backlash {backlash}")
-        ax[bl_idx // n_cols][bl_idx % n_cols].set_xlabel("Velocity Command")
-        ax[bl_idx // n_cols][bl_idx % n_cols].set_ylabel("Number of Falls")
-        ax[bl_idx // n_cols][bl_idx % n_cols].set_ylim(0, 500)
-        # set x tick rotation:
-        ax[bl_idx // n_cols][bl_idx % n_cols].tick_params(axis='x', labelrotation=75)
-        
-        x_pos = list(range(len(fall_counts[model_name][backlash].keys())))
-        if model_name == "rand":
-            x_pos = [x + 0.2 for x in x_pos]
+    label = "with bl in train" if model_name == "rand" else "without bl in train"
+    for bl_idx, backlash in enumerate(plot_bl_values):
+        a = axes[bl_idx]
+        a.set_title(f"backlash = {backlash}")
+        if bl_idx in (0, 2):
+            a.set_ylabel("Number of Falls")
         else:
-            x_pos = [x - 0.2 for x in x_pos]
-        labels = ["(" + cmd.replace("_", ",") + ")" for cmd in fall_counts[model_name][backlash].keys()]
-        ax[bl_idx // n_cols][bl_idx % n_cols].bar(x_pos,
-                                    list(fall_counts[model_name][backlash].values()),
-                                    0.35,
-                                    color=color,
-                                    alpha=0.7,
-                                    tick_label=labels)
+            a.tick_params(labelleft=False)
+        a.set_ylim(0, 500)
+        a.tick_params(axis='x', labelrotation=75)
 
-plt.legend()
+        cmds = [c for c in CMD_ORDER if c in fall_counts[model_name][backlash]]
+        x_pos = [i + (0.2 if model_name == "rand" else -0.2) for i in range(len(cmds))]
+        labels = [_cmd_label(cmd) for cmd in cmds]
+        a.bar(x_pos, [fall_counts[model_name][backlash][c] for c in cmds], 0.35,
+              color=color, alpha=0.7,
+              label=label if bl_idx == 0 else None,
+              tick_label=labels)
+
+axes[0].legend(loc="upper left")
 plt.savefig(_HERE / "fall_counts.pdf")
 plt.close(fig)
 
 # --- Velocity tracking separated by model, backlash, and run ---
 
-#match only the first 20 logs 
-velocity_logs = sorted(glob(str(_HERE) + "/logs/*velocities.csv"))
+velocity_logs = sorted(glob(str(_HERE) + "/logs/*velocities.npy"))
 
 FILENAME_RE = re.compile(
-    r"(\d+)_(.+\.onnx)_bl([\d.]+)_([-\d.]+)_([-\d.]+)_([-\d.]+)_velocities\.csv"
+    r"(\d+)_(.+\.onnx)_bl([\d.]+)_([-\d.]+)_([-\d.]+)_([-\d.]+)_velocities\.npy"
 )
 
 # data[model][backlash] -> {cmd_x, cmd_y, cmd_z, real_x, real_y, real_z}
@@ -129,8 +155,8 @@ for model in models:
         }
 
 # check if pickle exists:
-if not args.redo_cache and (_HERE / "velocities.pkl").exists():
-    with open(_HERE / "velocities.pkl", "rb") as f:
+if not args.redo_cache and (_HERE / "logs" / "velocities.pkl").exists():
+    with open(_HERE / "logs" / "velocities.pkl", "rb") as f:
         data = pickle.load(f)
 else:
     for log in tqdm(velocity_logs):
@@ -154,14 +180,11 @@ else:
         #        
 
 
-        with open(log, "r") as f:
-            rows = list(csv.reader(f))
-            if len(rows) <= 1502:
-                continue
-            velocities = np.array(
-                [[float(r[0]), float(r[1]), float(r[5])] for r in rows[500:-1000]]
-            )
-            mean_vel = np.mean(velocities, axis=0)
+        arr = np.load(log)
+        if len(arr) <= 1502:
+            continue
+        velocities = arr[500:-1000, [0, 1, 5]]
+        mean_vel = np.mean(velocities, axis=0)
 
         entry = data[model_name][backlash]
         entry["cmd_x"].append(cmd_x)
@@ -171,7 +194,7 @@ else:
         entry["real_y"].append(mean_vel[1])
         entry["real_z"].append(mean_vel[2])
 
-    with open(_HERE / "velocities.pkl", "wb") as f:
+    with open(_HERE / "logs" / "velocities.pkl", "wb") as f:
         pickle.dump(dict(data), f)
 
 
@@ -190,6 +213,7 @@ AXES = [
     ("cmd_z", "real_z", "Angular Velocity Z"),
 ]
 
+plt.rcParams.update({"font.size": 18})
 for cmd_key, real_key, title in AXES:
     fig, ax = plt.subplots(figsize=(8, 6))
     ax.set_title(f"Commanded vs Achieved {title}")
@@ -205,7 +229,12 @@ for cmd_key, real_key, title in AXES:
             e = data[model][bl_val]
             cmd = np.array(e[cmd_key])
             real = np.array(e[real_key])
-            mask = cmd != 0.0
+            all_zero = (
+                (np.array(e["cmd_x"]) == 0.0) &
+                (np.array(e["cmd_y"]) == 0.0) &
+                (np.array(e["cmd_z"]) == 0.0)
+            )
+            mask = (cmd != 0.0) | all_zero
             if not np.any(mask):
                 continue
             cmd_masked = cmd[mask]
@@ -214,13 +243,18 @@ for cmd_key, real_key, title in AXES:
             mean_reals = np.array(
                 [np.mean(real_masked[cmd_masked == c]) for c in unique_cmds]
             )
-            training = "with" if "rand" in model else "without"
+            if "rand" in model:
+                label_str = "with bl"
+            else:
+                label_str = f"without bl; bl={bl_val}"
             ax.plot(
                 unique_cmds, mean_reals, "o-",
-                color=color, label=f"{training} backlash in training; backlash {bl_val}", markersize=4, alpha=0.8,
+                color=color, label=label_str, markersize=4, alpha=0.8,
             )
-
-    ax.legend(fontsize="small", loc="upper left")
+    data_min = ax.get_ylim()[0]
+    data_max = ax.get_ylim()[1]
+    ax.plot([data_min, data_max], [data_min, data_max], "k--", alpha=0.4, linewidth=1)
+    ax.legend(fontsize=15, loc="upper left", ncol=2,  borderpad=0.2, labelspacing=0.2, handlelength=1.0, handleheight=0.35, handletextpad=0.4, borderaxespad=0.25, columnspacing=0.5)
     plt.tight_layout()
     plt.savefig(_HERE / f"{cmd_key}_vs_{real_key}.pdf")
     plt.close(fig)

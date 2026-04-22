@@ -111,7 +111,6 @@ class OnnxController:
 
 
 def run_experiment(command, policy, model, data, mj_viewer):
-    #logging.info("Test command: %s", command)
     policy.set_command(command)
     policy.reset()
     mujoco.mj_resetDataKeyframe(model, data, 0)
@@ -119,44 +118,45 @@ def run_experiment(command, policy, model, data, mj_viewer):
     last_sync_time = -1.0
     real_start_time = time.time()
     cmd_str = "_".join([f"{c:.2f}" for c in command])
-    velocity_log_path = _HERE / ("dummy.csv" if _DISABLE_VELOCITY_LOG.value else f"logs/{_RANDOM_SEED.value:03d}_{_ONNX_MODEL.value}_bl{_BACKLASH.value}_{cmd_str}_velocities.csv")
+    velocity_log_path = _HERE / "logs" / f"{_RANDOM_SEED.value:03d}_{_ONNX_MODEL.value}_bl{_BACKLASH.value}_{cmd_str}_velocities.npy"
     fall_log_path = _HERE / "logs" / f"{_RANDOM_SEED.value:03d}_{_ONNX_MODEL.value}_bl{_BACKLASH.value}_fall_times.csv"
     fallen = False
-    # Clear previous log
-    with open(velocity_log_path, "w") as f:
-        while sim_time < _MAX_TIME.value:
-            mujoco.mj_step(model, data)
-            sim_time += 0.002
+    velocity_rows = []
 
-            # Check if fallen - same logic as in joystick.py
-            gravity_vector = data.sensor("upvector").data
-            if gravity_vector[2] < 0.0:
-                #logging.info("Robot has fallen! Gravity z-component: %.3f", gravity_vector[2])
+    while sim_time < _MAX_TIME.value:
+        mujoco.mj_step(model, data)
+        sim_time += 0.002
+
+        gravity_vector = data.sensor("upvector").data
+        if gravity_vector[2] < 0.0:
+            with open(fall_log_path, "a") as f:
                 f.write(f"{cmd_str},{sim_time:.3f}\n")
-                fallen = True
-                break
+            fallen = True
+            break
 
-            # Check for NaN values in position or velocity
-            if np.isnan(data.qpos).any() or np.isnan(data.qvel).any():
-                logging.info("NaN detected in simulation state!")
-                break
+        if np.isnan(data.qpos).any() or np.isnan(data.qvel).any():
+            logging.info("NaN detected in simulation state!")
+            break
 
-            # measure real velocity:
-            linvel = data.sensor("local_linvel").data
-            angular_vel = data.sensor("gyro").data
-            print(_DISABLE_VELOCITY_LOG.value, "velolog")
-            if not _DISABLE_VELOCITY_LOG.value:
-                f.write(",".join(map(str, linvel)) + "," + ",".join(map(str, angular_vel)) + "\n")
+        linvel = data.sensor("local_linvel").data
+        angular_vel = data.sensor("gyro").data
+        if not _DISABLE_VELOCITY_LOG.value:
+            velocity_rows.append(np.concatenate([linvel, angular_vel]))
 
-            if mj_viewer and (sim_time - last_sync_time) > (1.0 / 60.0):
-                mj_viewer.sync()
-                last_sync_time = sim_time
-                if _REALTIME.value:
-                    real_elapsed = time.time() - real_start_time
-                    if sim_time > real_elapsed:
-                        time.sleep(sim_time - real_elapsed)
-        if not fallen:
+        if mj_viewer and (sim_time - last_sync_time) > (1.0 / 60.0):
+            mj_viewer.sync()
+            last_sync_time = sim_time
+            if _REALTIME.value:
+                real_elapsed = time.time() - real_start_time
+                if sim_time > real_elapsed:
+                    time.sleep(sim_time - real_elapsed)
+
+    if not fallen:
+        with open(fall_log_path, "a") as f:
             f.write(f"{cmd_str},{-1.0:.3f}\n")
+
+    if not _DISABLE_VELOCITY_LOG.value:
+        np.save(velocity_log_path, np.array(velocity_rows, dtype=np.float32))
 
 
 def main(argv):
