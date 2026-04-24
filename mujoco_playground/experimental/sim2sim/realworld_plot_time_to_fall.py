@@ -59,11 +59,11 @@ x = np.arange(len(labels))
 width = 0.35  # Increased from 0.25 to make bars wider and closer
 
 # Create the plot
-plt.figure(figsize=(14, 7))
+plt.figure(figsize=(14, 5))
 
 # Plot bars with reduced spacing
 bars1 = plt.bar(x - width/2, mean1, width, label='without backlash in training', color='#fe6100', alpha=0.7)
-bars2 = plt.bar(x + width/2, mean2, width, label='with backlash in training', color='#785ef0', alpha=0.7)
+bars2 = plt.bar(x + width/2, mean2, width, label='with backlash in training', color='#648fff', alpha=0.7)
 
 # Add individual data points
 for i, (label, values) in enumerate(data.items()):
@@ -79,7 +79,7 @@ for i, (label, values) in enumerate(data.items()):
 plt.ylabel('Time to Fall (s)', fontsize=24)
 plt.title('Time to Fall for Different Velocity Commands', fontsize=24)
 plt.xticks(x, labels, rotation=60, ha='right', fontsize=24)
-plt.legend(fontsize=20, loc='lower right')
+plt.legend(fontsize=20, loc='center left')
 plt.xlim(x[0] - 0.6, x[-1] + 0.6)
 
 # Set y-axis to show full range

@@ -95,28 +95,30 @@ def _cmd_label(cmd_str):
 
 
 color_without_backlash = '#fe6100'
-color_with_backlash = '#785ef0'
+color_with_backlash = '#648fff'
 
 plot_bl_values = [bl for bl in bl_values if float(bl) > 0.0375]
 
-# 2 on top (centered over 3 cols), 3 on bottom
+# 2 on top (left-aligned), legend to the right, 3 on bottom
 fig = plt.figure(figsize=(15, 10))
 gs = fig.add_gridspec(2, 6, hspace=0.65, wspace=0.08,
                       left=0.06, right=0.98, top=0.95, bottom=0.16)
 axes = [
-    fig.add_subplot(gs[0, 1:3]),
-    fig.add_subplot(gs[0, 3:5]),
+    fig.add_subplot(gs[0, 0:2]),
+    fig.add_subplot(gs[0, 2:4]),
     fig.add_subplot(gs[1, 0:2]),
     fig.add_subplot(gs[1, 2:4]),
     fig.add_subplot(gs[1, 4:6]),
 ]
+legend_ax = fig.add_subplot(gs[0, 4:6])
+legend_ax.axis('off')
 
 for model_name in ["rand", "zero"]:
     color = color_with_backlash if model_name == "rand" else color_without_backlash
-    label = "with bl in train" if model_name == "rand" else "without bl in train"
+    label = "with backlash in training" if model_name == "rand" else "without backlash in training"
     for bl_idx, backlash in enumerate(plot_bl_values):
         a = axes[bl_idx]
-        a.set_title(f"backlash = {backlash}")
+        a.set_title(f"bl = {backlash}")
         if bl_idx in (0, 2):
             a.set_ylabel("Number of Falls")
         else:
@@ -132,7 +134,8 @@ for model_name in ["rand", "zero"]:
               label=label if bl_idx == 0 else None,
               tick_label=labels)
 
-axes[0].legend(loc="upper left")
+handles, labels = axes[0].get_legend_handles_labels()
+legend_ax.legend(handles, labels, loc='center left')
 plt.savefig(_HERE / "fall_counts.pdf")
 plt.close(fig)
 
@@ -181,9 +184,9 @@ else:
 
 
         arr = np.load(log)
-        if len(arr) <= 1502:
+        if len(arr) <= 2500:
             continue
-        velocities = arr[500:-1000, [0, 1, 5]]
+        velocities = arr[1250:-1250, [0, 1, 5]]
         mean_vel = np.mean(velocities, axis=0)
 
         entry = data[model_name][backlash]
@@ -214,12 +217,26 @@ AXES = [
 ]
 
 plt.rcParams.update({"font.size": 18})
-for cmd_key, real_key, title in AXES:
-    fig, ax = plt.subplots(figsize=(8, 6))
-    ax.set_title(f"Commanded vs Achieved {title}")
-    ax.set_xlabel("Commanded")
-    ax.set_ylabel("Achieved")
+fig, axes_2x2 = plt.subplots(2, 2, figsize=(12, 10))
+ax_positions = {
+    "cmd_x": axes_2x2[0, 0],
+    "cmd_y": axes_2x2[0, 1],
+    "cmd_z": axes_2x2[1, 0],
+}
+legend_ax = axes_2x2[1, 1]
+legend_ax.axis("off")
 
+all_handles, all_labels = [], []
+
+for cmd_key, real_key, title in AXES:
+    ax = ax_positions[cmd_key]
+    ax.set_title(title)
+    if cmd_key == "cmd_x" or cmd_key == "cmd_y":
+        ax.set_xlabel("Commanded $\\mathrm{m/s}$")
+    elif cmd_key == "cmd_z":
+        ax.set_xlabel("Commanded $\\mathrm{rad/s}$") 
+    if cmd_key == "cmd_x" or cmd_key == "cmd_z":
+        ax.set_ylabel("Achieved $\\mathrm{m/s}$" if cmd_key == "cmd_x" else "Achieved $\\mathrm{rad/s}$")
     for model in model_names:
         cmap = model_cmap[model]
         for bl_idx, bl_val in enumerate(backlash_values):
@@ -244,17 +261,24 @@ for cmd_key, real_key, title in AXES:
                 [np.mean(real_masked[cmd_masked == c]) for c in unique_cmds]
             )
             if "rand" in model:
-                label_str = "with bl"
+                label_str = "backlash in training"
             else:
-                label_str = f"without bl; bl={bl_val}"
-            ax.plot(
+                label_str = f"no backlash in training; bl={bl_val}"
+            line, = ax.plot(
                 unique_cmds, mean_reals, "o-",
                 color=color, label=label_str, markersize=4, alpha=0.8,
             )
+            if cmd_key == "cmd_x":
+                all_handles.append(line)
+                all_labels.append(label_str)
     data_min = ax.get_ylim()[0]
     data_max = ax.get_ylim()[1]
     ax.plot([data_min, data_max], [data_min, data_max], "k--", alpha=0.4, linewidth=1)
-    ax.legend(fontsize=15, loc="upper left", ncol=2,  borderpad=0.2, labelspacing=0.2, handlelength=1.0, handleheight=0.35, handletextpad=0.4, borderaxespad=0.25, columnspacing=0.5)
-    plt.tight_layout()
-    plt.savefig(_HERE / f"{cmd_key}_vs_{real_key}.pdf")
-    plt.close(fig)
+
+legend_ax.legend(all_handles, all_labels, loc="center", fontsize=15, ncol=2,
+                 borderpad=0.2, labelspacing=0.2, handlelength=1.0,
+                 handleheight=0.35, handletextpad=0.4, borderaxespad=0.25,
+                 columnspacing=0.5)
+plt.tight_layout(pad=0.5)
+plt.savefig(_HERE / "cmd_vs_real_velocities.pdf")
+plt.close(fig)
