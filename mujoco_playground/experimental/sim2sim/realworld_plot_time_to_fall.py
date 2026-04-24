@@ -43,10 +43,10 @@ def _cmd_label(key):
     if x == 0.0 and y == 0.0 and z == 0.0:
         return r"$|v|=0$"
     if x != 0.0:
-        return rf"$v_x={x:g}$"
+        return rf"$v_x={x:g} \,\mathrm{{m/s}}$"
     if y != 0.0:
-        return rf"$v_y={y:g}$"
-    return rf"$v_{{\theta}}={z:g}$"
+        return rf"$v_y={y:g} \,\mathrm{{m/s}}$"
+    return rf"$v_{{\theta}}={z:g} \,\mathrm{{rad/s}}$"
 
 
 # Extract labels and values
@@ -62,8 +62,8 @@ width = 0.35  # Increased from 0.25 to make bars wider and closer
 plt.figure(figsize=(14, 7))
 
 # Plot bars with reduced spacing
-bars1 = plt.bar(x - width/2, mean1, width, label='No Backlash', color='#fe6100', alpha=0.7)
-bars2 = plt.bar(x + width/2, mean2, width, label='Randomized Backlash', color='#785ef0', alpha=0.7)
+bars1 = plt.bar(x - width/2, mean1, width, label='without backlash in training', color='#fe6100', alpha=0.7)
+bars2 = plt.bar(x + width/2, mean2, width, label='with backlash in training', color='#785ef0', alpha=0.7)
 
 # Add individual data points
 for i, (label, values) in enumerate(data.items()):
@@ -77,7 +77,7 @@ for i, (label, values) in enumerate(data.items()):
 
 # Formatting labels and title
 plt.ylabel('Time to Fall (s)', fontsize=24)
-plt.title('Time to Fall vs Velocity Commands ($x$ (m/s), $y$ (m/s), $\\theta$ (rad/s))', fontsize=24)
+plt.title('Time to Fall for Different Velocity Commands', fontsize=24)
 plt.xticks(x, labels, rotation=60, ha='right', fontsize=24)
 plt.legend(fontsize=20, loc='lower right')
 plt.xlim(x[0] - 0.6, x[-1] + 0.6)
