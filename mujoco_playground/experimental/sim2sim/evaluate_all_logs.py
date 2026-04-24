@@ -147,7 +147,7 @@ FILENAME_RE = re.compile(
     r"(\d+)_(.+\.onnx)_bl([\d.]+)_([-\d.]+)_([-\d.]+)_([-\d.]+)_velocities\.npy"
 )
 
-# data[model][backlash] -> {cmd_x, cmd_y, cmd_z, real_x, real_y, real_z}
+# data[model][backlash] -> {cmd_x, cmd_y, cmd_z, real_x, real_y, real_z, n_samples}
 data = {}
 for model in models:
     data[model] = {}
@@ -155,6 +155,7 @@ for model in models:
         data[model][bl_value] = {
             "cmd_x": [], "cmd_y": [], "cmd_z": [],
             "real_x": [], "real_y": [], "real_z": [],
+            "n_samples": [],
         }
 
 # check if pickle exists:
@@ -187,6 +188,7 @@ else:
         if len(arr) <= 2500:
             continue
         velocities = arr[1250:-1250, [0, 1, 5]]
+        n_samples = len(velocities)
         mean_vel = np.mean(velocities, axis=0)
 
         entry = data[model_name][backlash]
@@ -196,6 +198,7 @@ else:
         entry["real_x"].append(mean_vel[0])
         entry["real_y"].append(mean_vel[1])
         entry["real_z"].append(mean_vel[2])
+        entry["n_samples"].append(n_samples)
 
     with open(_HERE / "logs" / "velocities.pkl", "wb") as f:
         pickle.dump(dict(data), f)
@@ -246,6 +249,7 @@ for cmd_key, real_key, title in AXES:
             e = data[model][bl_val]
             cmd = np.array(e[cmd_key])
             real = np.array(e[real_key])
+            n = np.array(e["n_samples"])
             all_zero = (
                 (np.array(e["cmd_x"]) == 0.0) &
                 (np.array(e["cmd_y"]) == 0.0) &
@@ -256,9 +260,11 @@ for cmd_key, real_key, title in AXES:
                 continue
             cmd_masked = cmd[mask]
             real_masked = real[mask]
+            n_masked = n[mask]
             unique_cmds = np.unique(cmd_masked)
             mean_reals = np.array(
-                [np.mean(real_masked[cmd_masked == c]) for c in unique_cmds]
+                [np.sum(real_masked[cmd_masked == c] * n_masked[cmd_masked == c]) / np.sum(n_masked[cmd_masked == c])
+                 for c in unique_cmds]
             )
             if "rand" in model:
                 label_str = "backlash in training"
