@@ -41,12 +41,12 @@ data = {
 def _cmd_label(key):
     x, y, z = [float(v) for v in key.strip("()").split(",")]
     if x == 0.0 and y == 0.0 and z == 0.0:
-        return r"$|v|=0$"
+        return r"$|\mathrm{cmd}|=0$"
     if x != 0.0:
-        return rf"$v_x={x:g} \,\mathrm{{m/s}}$"
+        return rf"$\mathrm{{cmd}}_x={x:g} \,\mathrm{{m/s}}$"
     if y != 0.0:
-        return rf"$v_y={y:g} \,\mathrm{{m/s}}$"
-    return rf"$v_{{\theta}}={z:g} \,\mathrm{{rad/s}}$"
+        return rf"$\mathrm{{cmd}}_y={y:g} \,\mathrm{{m/s}}$"
+    return rf"$\mathrm{{cmd}}_{{\theta}}={z:g} \,\mathrm{{rad/s}}$"
 
 
 # Extract labels and values

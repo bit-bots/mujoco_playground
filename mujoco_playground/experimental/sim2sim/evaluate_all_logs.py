@@ -86,12 +86,12 @@ CMD_ORDER = [
 def _cmd_label(cmd_str):
     x, y, z = [float(v) for v in cmd_str.split("_")]
     if x == 0.0 and y == 0.0 and z == 0.0:
-        return r"$|v|=0$"
+        return r"$|\mathrm{cmd}|=0$"
     if x != 0.0:
-        return rf"$v_x={x:g}$"
+        return rf"$\mathrm{{cmd}}_x={x:g}$"
     if y != 0.0:
-        return rf"$v_y={y:g}$"
-    return rf"$v_{{\theta}}={z:g}$"
+        return rf"$\mathrm{{cmd}}_y={y:g}$"
+    return rf"$\mathrm{{cmd}}_{{\theta}}={z:g}$"
 
 
 color_without_backlash = '#fe6100'
