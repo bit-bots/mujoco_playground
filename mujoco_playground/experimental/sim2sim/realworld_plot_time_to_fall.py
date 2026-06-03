@@ -88,6 +88,11 @@ plt.ylim(0, 32)
 # Add grid for better readability
 plt.grid(True, alpha=0.3, axis='y')
 
+# Vertical separators between cmd=0, x, y, theta groups
+for sep in [0.5, 4.5, 8.5]:
+    plt.axvline(sep - 0.03, color='gray', linestyle='--', linewidth=1.5)
+    plt.axvline(sep + 0.03, color='gray', linestyle='--', linewidth=1.5)
+
 plt.tight_layout()
 plt.savefig(_HERE / "realworld_time_to_fall.pdf")
 plt.show()
